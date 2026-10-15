@@ -1,0 +1,9 @@
+/target
+Cargo.lock
+
+# Real WireGuard configs contain private keys - only *.conf.template belongs in git.
+*.conf
+!examples/*.conf.template
+
+# Generated bench history (local measurements, not source).
+docs/runs.csv

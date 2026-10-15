@@ -1,0 +1,10 @@
+# TEMPLATE ONLY. Install on your own Linux relay as /etc/wireguard/wg0.conf.
+# Restricts this peer to the client's tunnel address; this is not an internet exit VPN.
+[Interface]
+PrivateKey = <RELAY_PRIVATE_KEY>
+Address = 10.66.0.1/24
+ListenPort = 51820
+
+[Peer]
+PublicKey = <CLIENT_PUBLIC_KEY>
+AllowedIPs = 10.66.0.2/32

@@ -1,0 +1,13 @@
+[package]
+name = "route-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Prototype controller for an official WireGuard for Windows tunnel"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

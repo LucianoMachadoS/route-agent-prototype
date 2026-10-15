@@ -1,0 +1,11 @@
+# TEMPLATE ONLY. Replace all placeholders before use.
+# Do not commit real private keys to Git.
+[Interface]
+PrivateKey = <CLIENT_PRIVATE_KEY>
+Address = 10.66.0.2/24
+
+[Peer]
+PublicKey = <RELAY_PUBLIC_KEY>
+Endpoint = <RELAY_PUBLIC_IPV4_OR_DNS>:51820
+AllowedIPs = 10.66.0.0/24
+PersistentKeepalive = 25
