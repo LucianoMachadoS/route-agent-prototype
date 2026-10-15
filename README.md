@@ -39,6 +39,8 @@ Rust CLI (route-agent)
   │              └── WireGuardTunnel$<config-stem> Windows service
   │                   └── encrypted WireGuard UDP tunnel
   │                        └── Linux relay (wg-quick / wg)
+  ├── health-check
+  │    └── health.rs - TunnelManager::status() + Probe::measure() combined
   ├── bench
   │    └── Probe (bench.rs) - ping.exe (direct host, then tunnel host)
   │         └── median/p95/p99/jitter/loss -> docs/runs.csv
@@ -143,6 +145,19 @@ standard install locations and then `PATH`).
 ping 10.66.0.1
 ```
 
+Or do both at once with `health-check`, which exits non-zero if either
+check fails (scriptable):
+
+```powershell
+.\target\release\route-agent.exe health-check --name route-client --tunnel-host 10.66.0.1
+```
+
+Note what this does **not** verify: there's no documented way to query a
+live WireGuard handshake/peer state from the official Windows client's
+CLI (no bundled `wg.exe` like Linux's `wg show`), so `health-check` is
+"service running + relay address pings" - a solid practical signal, but
+not a cryptographic handshake check.
+
 On the relay:
 
 ```bash
@@ -230,12 +245,14 @@ yourself, not automatically.
 route-agent connect    --config <PATH> [--wireguard <PATH>]
 route-agent disconnect --name <TUNNEL_NAME> [--wireguard <PATH>]
 route-agent status     --name <TUNNEL_NAME>
+route-agent health-check --name <TUNNEL_NAME> --tunnel-host <HOST> [--count <N>]
 route-agent bench      --direct-host <HOST> [--tunnel-host <HOST>] [--count <N>] [--note <TEXT>] [--csv <PATH>]
 route-agent monitor    --relays <PATH> --direct-host <HOST> [--count <N>] [--interval <SECS>] [--rounds <N>] [--dry-run] [--csv <PATH>] [--wireguard <PATH>]
 ```
 
 Options:
 - `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`.
+- `health-check --count` defaults to 5 probes.
 - Alternatively set the `WIREGUARD_EXE` environment variable. The flag
   wins if both are set; if neither is set, the standard install locations
   and then `PATH` are searched.
@@ -254,8 +271,9 @@ Options:
   `docs/BENCHMARK_PLAN.md`).
 - No relay discovery, game/process detection, UI, or multipath - all
   still deferred per the project roadmap.
-- `status` reports Windows service state, not a cryptographic handshake or
-  end-to-end health check.
+- `status`/`health-check` report Windows service state + ICMP
+  reachability, not a cryptographic handshake check - there is no
+  documented way to query that from the official Windows client's CLI.
 - No full-tunnel `AllowedIPs = 0.0.0.0/0`; this is intentional to avoid
   unexpectedly redirecting all network traffic.
 - `bench`/`monitor` measure ICMP latency/jitter/loss, which correlates
@@ -270,8 +288,11 @@ Options:
 
 ## Next milestones
 
-1. Add structured logs and a `health-check` that tests the tunnel endpoint
-   (a real WireGuard handshake check, not just service state).
+1. ~~Add a `health-check` that tests the tunnel endpoint~~ done - see
+   above (it's a practical proxy, not a real handshake check, since the
+   Windows client doesn't expose one via CLI). A broader structured-
+   logging pass (e.g. the `tracing` crate) across every subcommand is
+   still open if that becomes worth it.
 2. Let `monitor` treat "no tunnel" as a selectable candidate, so a relay
    that's worse than the direct path doesn't get used just because it's
    the best of the configured relays.

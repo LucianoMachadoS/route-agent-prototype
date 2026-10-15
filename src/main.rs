@@ -3,8 +3,9 @@
 //! Subcommands:
 //!   connect    - install & start the tunnel as a Windows service from a config
 //!   disconnect - stop & uninstall the tunnel's Windows service
-//!   status     - report whether the tunnel's Windows service is running
-//!   bench      - compare direct vs. tunnel latency/jitter/loss and log it
+//!   status      - report whether the tunnel's Windows service is running
+//!   health-check - status + an actual ping to the relay's tunnel address
+//!   bench       - compare direct vs. tunnel latency/jitter/loss and log it
 //!   monitor    - Phase 3: probe multiple relay candidates, score them, and
 //!                (unless --dry-run) switch the active tunnel automatically
 //!
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use route_agent::{bench, monitor, wireguard};
+use route_agent::{bench, health, monitor, wireguard};
 
 #[derive(Parser)]
 #[command(
@@ -58,6 +59,21 @@ enum Commands {
         /// Tunnel name (the config file's stem, e.g. "route-client" for route-client.conf).
         #[arg(long)]
         name: String,
+    },
+    /// Check whether the tunnel is actually passing traffic, not just
+    /// whether its Windows service is running: pings the relay's tunnel
+    /// address on top of the service-state check `status` already does.
+    /// Exits non-zero if either check fails, so it's scriptable.
+    HealthCheck {
+        /// Tunnel name (the config file's stem, e.g. "route-client" for route-client.conf).
+        #[arg(long)]
+        name: String,
+        /// The relay's tunnel address to ping (e.g. 10.66.0.1).
+        #[arg(long)]
+        tunnel_host: String,
+        /// ICMP probes to send.
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u32).range(1..=1000))]
+        count: u32,
     },
     /// Compare latency/jitter/loss direct vs. through the tunnel, and log the result.
     Bench {
@@ -131,6 +147,29 @@ fn main() {
         Commands::Status { name } => wireguard::status(&name).map(|state| {
             println!("Tunnel '{name}': {state}");
         }),
+        Commands::HealthCheck {
+            name,
+            tunnel_host,
+            count,
+        } => {
+            let tunnel = wireguard::WireGuardTunnel::default();
+            let probe = bench::PingProbe;
+            health::check(&tunnel, &probe, &name, &tunnel_host, count).map(|report| {
+                println!(
+                    "Tunnel '{}': service={} reachable={} ({:.0}% loss)",
+                    report.tunnel_name,
+                    report.service,
+                    report.reachability.available,
+                    report.reachability.loss_pct
+                );
+                if report.healthy() {
+                    println!("-> healthy");
+                } else {
+                    println!("-> NOT healthy");
+                    std::process::exit(1);
+                }
+            })
+        }
         Commands::Bench {
             direct_host,
             tunnel_host,

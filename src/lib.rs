@@ -8,6 +8,7 @@
 
 pub mod bench;
 pub mod error;
+pub mod health;
 pub mod monitor;
 pub mod relays;
 pub mod routing;
