@@ -52,7 +52,9 @@ pub fn find_wireguard_exe(override_path: Option<&Path>) -> Result<PathBuf> {
         }
     }
 
-    Err(AgentError::WireGuardNotFound(PathBuf::from("wireguard.exe")))
+    Err(AgentError::WireGuardNotFound(PathBuf::from(
+        "wireguard.exe",
+    )))
 }
 
 /// Derives the tunnel/service name WireGuard will use from a config path:

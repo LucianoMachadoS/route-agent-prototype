@@ -6,7 +6,7 @@ description = "Prototype controller for an official WireGuard for Windows tunnel
 license = "MIT"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 
 [dev-dependencies]

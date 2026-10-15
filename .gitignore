@@ -1,5 +1,4 @@
 /target
-Cargo.lock
 
 # Real WireGuard configs contain private keys - only *.conf.template belongs in git.
 *.conf
@@ -7,3 +6,7 @@ Cargo.lock
 
 # Generated bench history (local measurements, not source).
 docs/runs.csv
+
+# Scratch copy of the old zip, extracted here just to recover the lost
+# README.md - already merged back into README.md, safe to delete.
+/antigo

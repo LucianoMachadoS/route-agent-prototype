@@ -64,10 +64,19 @@ impl PingStats {
 /// English ("time=23ms", "time<1ms") and Portuguese ("tempo=23ms") output:
 /// it only looks for a number immediately before "ms" after the last '='
 /// or '<' on each line, so it does not depend on any other wording.
+///
+/// Only lines containing "bytes=" are considered - these are the per-probe
+/// reply lines ("Reply from ...: bytes=32 time=5ms ..." / "Resposta de
+/// ...: bytes=32 tempo=5ms ..."). This deliberately excludes the trailing
+/// "Minimum = Xms, Maximum = Yms, Average = Zms" statistics line, which
+/// would otherwise be misread as one extra reply.
 pub fn parse_ping_output(output: &str) -> Vec<f64> {
     let mut latencies = Vec::new();
     for line in output.lines() {
         let lower = line.to_ascii_lowercase();
+        if !lower.contains("bytes=") {
+            continue;
+        }
         if let Some(ms_pos) = lower.find("ms") {
             let prefix = &line[..ms_pos];
             if let Some(sep) = prefix.rfind(|c: char| c == '=' || c == '<') {
@@ -94,7 +103,10 @@ pub fn ping(host: &str, count: u32) -> Result<PingStats> {
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let latencies_ms = parse_ping_output(&stdout);
-    Ok(PingStats { sent: count, latencies_ms })
+    Ok(PingStats {
+        sent: count,
+        latencies_ms,
+    })
 }
 
 /// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`, via PowerShell with an
@@ -115,7 +127,8 @@ fn utc_timestamp() -> Result<String> {
 }
 
 fn fmt_opt(v: Option<f64>) -> String {
-    v.map(|x| format!("{x:.1}")).unwrap_or_else(|| "-".to_string())
+    v.map(|x| format!("{x:.1}"))
+        .unwrap_or_else(|| "-".to_string())
 }
 
 /// Quotes a CSV field if it contains a comma, quote or newline.
@@ -148,7 +161,10 @@ pub fn append_run_csv(csv_path: &Path, row: &RunRow) -> Result<()> {
             std::fs::create_dir_all(parent)?;
         }
     }
-    let mut file = OpenOptions::new().create(true).append(true).open(csv_path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(csv_path)?;
     if is_new {
         writeln!(file, "{CSV_HEADER}")?;
     }
@@ -191,7 +207,13 @@ fn print_comparison(label: &str, host: &str, stats: &PingStats) {
 
 /// Runs the direct-vs-tunnel comparison described in `docs/experiments.md`
 /// and appends a row to `csv_path`.
-pub fn run(direct_host: &str, tunnel_host: &str, count: u32, note: &str, csv_path: &Path) -> Result<()> {
+pub fn run(
+    direct_host: &str,
+    tunnel_host: &str,
+    count: u32,
+    note: &str,
+    csv_path: &Path,
+) -> Result<()> {
     println!("Pinging direct host ({direct_host}, {count} probes)...");
     let direct = ping(direct_host, count)?;
     println!("Pinging tunnel host ({tunnel_host}, {count} probes)...");
@@ -204,9 +226,15 @@ pub fn run(direct_host: &str, tunnel_host: &str, count: u32, note: &str, csv_pat
     if let (Some(d), Some(t)) = (direct.median(), tunnel.median()) {
         println!();
         if t < d {
-            println!("  -> tunnel is {:.1} ms faster (median) than direct.", d - t);
+            println!(
+                "  -> tunnel is {:.1} ms faster (median) than direct.",
+                d - t
+            );
         } else if t > d {
-            println!("  -> direct is {:.1} ms faster (median) than tunnel.", t - d);
+            println!(
+                "  -> direct is {:.1} ms faster (median) than tunnel.",
+                t - d
+            );
         } else {
             println!("  -> direct and tunnel medians are equal.");
         }
@@ -252,6 +280,26 @@ Reply from 1.1.1.1: bytes=32 time<1ms TTL=58
         assert_eq!(v, vec![15.0]);
     }
 
+    /// Regression test: a real `ping.exe -n 3` run ends with a one-line
+    /// "Minimum = Xms, Maximum = Yms, Average = Zms" summary that contains
+    /// "ms" too. It must not be counted as a 4th reply.
+    #[test]
+    fn ignores_the_trailing_statistics_line() {
+        let sample = "\
+Pinging 1.1.1.1 with 32 bytes of data:
+Reply from 1.1.1.1: bytes=32 time=5ms TTL=58
+Reply from 1.1.1.1: bytes=32 time=8ms TTL=58
+Reply from 1.1.1.1: bytes=32 time=4ms TTL=58
+
+Ping statistics for 1.1.1.1:
+    Packets: Sent = 3, Received = 3, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 4ms, Maximum = 8ms, Average = 5ms
+";
+        let v = parse_ping_output(sample);
+        assert_eq!(v, vec![5.0, 8.0, 4.0]);
+    }
+
     #[test]
     fn stats_percentiles_and_jitter() {
         let stats = PingStats {
@@ -275,7 +323,10 @@ Reply from 1.1.1.1: bytes=32 time<1ms TTL=58
 
     #[test]
     fn jitter_is_none_for_single_sample() {
-        let stats = PingStats { sent: 1, latencies_ms: vec![10.0] };
+        let stats = PingStats {
+            sent: 1,
+            latencies_ms: vec![10.0],
+        };
         assert_eq!(stats.jitter(), None);
     }
 
