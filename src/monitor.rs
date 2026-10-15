@@ -1,9 +1,12 @@
 //! `monitor` subcommand: continuously probes all configured relay
 //! candidates plus the direct path, scores them, and (unless
-//! `--dry-run`) switches the active WireGuard tunnel to whichever relay
-//! the selector picks. This is Phase 3 of the project roadmap - route
-//! selection and failover - on top of the Phase 1/2 pieces (`bench`,
-//! `connect`/`disconnect`) that already existed.
+//! `--dry-run`) switches the active WireGuard tunnel to whichever
+//! candidate the selector picks - including the direct path itself
+//! (`relays::DIRECT_CANDIDATE`), so a relay that's worse than just
+//! staying on the direct connection doesn't win only because it's the
+//! best of the configured relays. This is Phase 3 of the project
+//! roadmap - route selection and failover - on top of the Phase 1/2
+//! pieces (`bench`, `connect`/`disconnect`) that already existed.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -63,15 +66,23 @@ pub fn run(
             }
         }
 
-        if let Ok(direct) = probe.measure(direct_host, probe_count) {
-            println!(
-                "[round {round_no}] direct({direct_host}): loss={:.1}% jitter={}",
-                direct.loss_pct,
-                direct
-                    .jitter_ms
-                    .map(|j| format!("{j:.1}ms"))
-                    .unwrap_or_else(|| "-".to_string())
-            );
+        match probe.measure(direct_host, probe_count) {
+            Ok(direct) => {
+                println!(
+                    "[round {round_no}] direct({direct_host}): loss={:.1}% jitter={}",
+                    direct.loss_pct,
+                    direct
+                        .jitter_ms
+                        .map(|j| format!("{j:.1}ms"))
+                        .unwrap_or_else(|| "-".to_string())
+                );
+                // The direct path is a candidate like any relay (named
+                // relays::DIRECT_CANDIDATE), so a relay that's worse than
+                // just staying on the direct connection doesn't win only
+                // because it's the best of the configured relays.
+                round.insert(relays::DIRECT_CANDIDATE.to_string(), direct);
+            }
+            Err(e) => eprintln!("warning: probing direct host '{direct_host}' failed: {e}"),
         }
 
         let decision = selector.evaluate(&round, &relays_file.scoring);

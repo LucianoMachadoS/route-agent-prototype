@@ -9,6 +9,14 @@ use serde::Deserialize;
 
 use crate::error::{AgentError, Result};
 
+/// Reserved candidate name for "no tunnel, use the direct connection".
+/// `monitor` scores this alongside every configured relay (see
+/// `monitor::run` and `routing::selector::apply_decision`), so a relay
+/// that's worse than the direct path doesn't get used just because it's
+/// the best of the configured relays. A real relay can't use this name -
+/// `load()` rejects it.
+pub const DIRECT_CANDIDATE: &str = "direct";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct RelayProfile {
     pub name: String,
@@ -67,6 +75,14 @@ pub fn load(path: &Path) -> Result<RelaysFile> {
 
     let mut seen = HashSet::new();
     for relay in &parsed.relays {
+        if relay.name == DIRECT_CANDIDATE {
+            return Err(AgentError::RelayConfigInvalid {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "relay name '{DIRECT_CANDIDATE}' is reserved for the direct/no-tunnel candidate"
+                ),
+            });
+        }
         if !seen.insert(relay.name.clone()) {
             return Err(AgentError::RelayConfigInvalid {
                 path: path.to_path_buf(),
@@ -108,6 +124,19 @@ tunnel_host = "10.66.0.1"
         let parsed = load(f.path()).unwrap();
         assert_eq!(parsed.relays.len(), 2);
         assert_eq!(parsed.scoring.w_rtt, 0.4);
+    }
+
+    #[test]
+    fn rejects_relay_named_direct() {
+        let f = write_toml(
+            r#"
+[[relay]]
+name = "direct"
+config = "a.conf"
+tunnel_host = "10.66.0.1"
+"#,
+        );
+        assert!(load(f.path()).is_err());
     }
 
     #[test]

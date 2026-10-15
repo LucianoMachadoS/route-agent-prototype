@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::error::{AgentError, Result};
-use crate::relays::{RelayProfile, ScoringWeights};
+use crate::relays::{RelayProfile, ScoringWeights, DIRECT_CANDIDATE};
 use crate::routing::score::{score_round, ScoreInput};
 use crate::traits::{Measurement, TunnelManager};
 
@@ -240,6 +240,11 @@ impl Selector {
 /// one. Kept separate from `Selector::evaluate` so the pure selection
 /// logic above stays trivially testable, and only this function needs a
 /// `TunnelManager` (real or faked).
+///
+/// `decision.chosen == relays::DIRECT_CANDIDATE` means "no tunnel beats
+/// staying on the direct connection": this disconnects whatever tunnel
+/// is active and connects nothing, rather than erroring because there's
+/// no `RelayProfile` named "direct".
 pub fn apply_decision(
     decision: &Decision,
     relays: &[RelayProfile],
@@ -249,6 +254,14 @@ pub fn apply_decision(
     if decision.keep_current {
         return Ok(());
     }
+
+    if decision.chosen == DIRECT_CANDIDATE {
+        if let Some(old_name) = active_tunnel_name.take() {
+            tunnel.disconnect(&old_name)?;
+        }
+        return Ok(());
+    }
+
     let profile = relays
         .iter()
         .find(|r| r.name == decision.chosen)
@@ -416,5 +429,69 @@ mod tests {
             "expected hard failover to override cooldown: {d:?}"
         );
         assert_eq!(d.chosen, "b");
+    }
+
+    #[test]
+    fn direct_can_win_against_every_relay() {
+        let mut config = SelectorConfig::default();
+        config.cooldown = Duration::from_secs(0);
+        let mut sel = Selector::new(config);
+        let d = sel.evaluate(
+            &round(&[
+                (DIRECT_CANDIDATE, measurement(15.0, 1.0, 0.0)),
+                ("a", measurement(200.0, 25.0, 10.0)),
+                ("b", measurement(180.0, 20.0, 8.0)),
+            ]),
+            &weights(),
+        );
+        assert_eq!(d.chosen, DIRECT_CANDIDATE);
+        assert_eq!(sel.current(), Some(DIRECT_CANDIDATE));
+    }
+
+    #[test]
+    fn apply_decision_to_direct_disconnects_without_connecting() {
+        use std::cell::RefCell;
+        use std::path::Path;
+
+        #[derive(Default)]
+        struct FakeTunnel {
+            calls: RefCell<Vec<String>>,
+        }
+        impl TunnelManager for FakeTunnel {
+            fn connect(&self, config: &Path) -> Result<String> {
+                self.calls
+                    .borrow_mut()
+                    .push(format!("connect({})", config.display()));
+                Ok("should-not-happen".to_string())
+            }
+            fn disconnect(&self, name: &str) -> Result<()> {
+                self.calls.borrow_mut().push(format!("disconnect({name})"));
+                Ok(())
+            }
+            fn status(&self, _name: &str) -> Result<crate::wireguard::ServiceState> {
+                Ok(crate::wireguard::ServiceState::Running)
+            }
+        }
+
+        let tunnel = FakeTunnel::default();
+        let relays = vec![RelayProfile {
+            name: "a".to_string(),
+            config: "a.conf".into(),
+            tunnel_host: "10.66.0.1".to_string(),
+        }];
+        let mut active = Some("fake-0".to_string());
+
+        let decision = Decision {
+            chosen: DIRECT_CANDIDATE.to_string(),
+            keep_current: false,
+            reason: "test".to_string(),
+            scores: HashMap::new(),
+        };
+        apply_decision(&decision, &relays, &tunnel, &mut active).unwrap();
+
+        let calls = tunnel.calls.borrow();
+        assert_eq!(calls.len(), 1, "calls: {calls:?}");
+        assert!(calls[0].starts_with("disconnect(fake-0)"));
+        assert_eq!(active, None);
     }
 }

@@ -123,5 +123,27 @@ Design choices in `routing/` worth knowing before changing them:
   time, so there's no real collision; don't "fix" this into unique
   per-relay subnets unless you're also building concurrent multi-tunnel
   support (explicitly out of scope for now).
-- `monitor --direct-host` is informational only, not a candidate the
-  selector can pick - see the open item in `docs/BENCHMARK_PLAN.md`.
+- `monitor --direct-host` is scored as a candidate named
+  `relays::DIRECT_CANDIDATE` ("direct", reserved - `relays::load()`
+  rejects a real relay using that name). `apply_decision` special-cases
+  it: disconnect whatever's active, connect nothing.
+
+## Real bug found and fixed: `ping()` turned "target down" into a hard error
+
+While smoke-testing the direct-candidate feature above, two relays
+pointed at unreachable IPs (203.0.113.1/.2, RFC 5737 TEST-NET) **vanished
+from `monitor`'s round entirely** instead of showing up with
+`loss_pct: 100.0`. Root cause: an earlier session's fix for "a bad
+hostname shouldn't silently look like 100% loss" was too broad - it
+treated *any* "zero replies + non-zero exit" as a hard error, but
+`ping.exe` also exits non-zero for a **real, fully-timed-out** target,
+which is exactly the measurement `monitor`'s hard-failover and
+`direct`-candidate logic depend on. The two cases need the output
+examined, not just the exit code, to tell apart: `ping()` now uses
+`looks_like_a_real_attempt()` (counts non-empty lines - more than one
+means it actually sent probes, one means an immediate DNS/usage
+failure) instead of exit status. **If you touch `ping()` again, smoke-
+test it against both a real public IP AND an RFC 5737 TEST-NET address
+(203.0.113.0/24) in the same `monitor` run** - the unit tests use
+synthetic transcripts for this exact case, but the bug only showed up
+end-to-end, not in `cargo test`.

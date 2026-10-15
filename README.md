@@ -234,10 +234,11 @@ flapping over noise) and a fast path for outright failure.
    [`docs/BENCHMARK_PLAN.md`](docs/BENCHMARK_PLAN.md)).
 
 Every round's scores and whether a switch happened are appended to
-`docs/decisions.csv`. The direct host is only printed for reference each
-round - it isn't (yet) something the selector can pick, so if every relay
-is worse than your direct path that only shows up by reading the numbers
-yourself, not automatically.
+`docs/decisions.csv`. `--direct-host` is scored as a candidate too, named
+`direct` (reserved - a relay can't use that name): if every configured
+relay is worse than just staying on the direct connection, `monitor`
+disconnects any active tunnel instead of keeping a losing relay active
+just because it was the best of the configured ones.
 
 ## CLI reference
 
@@ -265,10 +266,6 @@ Options:
 
 ## Current limitations
 
-- `monitor` only scores the relays in `relays.toml` against each other -
-  it doesn't compare against "no tunnel at all", so a direct connection
-  that beats every relay isn't detected automatically (see
-  `docs/BENCHMARK_PLAN.md`).
 - No relay discovery, game/process detection, UI, or multipath - all
   still deferred per the project roadmap.
 - `status`/`health-check` report Windows service state + ICMP
@@ -293,9 +290,9 @@ Options:
    Windows client doesn't expose one via CLI). A broader structured-
    logging pass (e.g. the `tracing` crate) across every subcommand is
    still open if that becomes worth it.
-2. Let `monitor` treat "no tunnel" as a selectable candidate, so a relay
-   that's worse than the direct path doesn't get used just because it's
-   the best of the configured relays.
+2. ~~Let `monitor` treat "no tunnel" as a selectable candidate~~ done -
+   the direct host is scored as a `direct` candidate; see "Automatic
+   relay selection and failover" above.
 3. Add explicit consent/configuration for selective application routing,
    using documented Windows networking mechanisms (this needs NAT/
    forwarding on the relay for the game server's IP, not just the client's

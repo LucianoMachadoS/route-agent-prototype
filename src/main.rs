@@ -101,7 +101,9 @@ enum Commands {
         /// Path to a relays.toml (see relays.toml.template).
         #[arg(long)]
         relays: PathBuf,
-        /// Host/IP to ping directly, for reference (not a switch candidate).
+        /// Host/IP to ping directly. Scored as a candidate too (named
+        /// "direct"): if no relay beats it, monitor disconnects any
+        /// active tunnel instead of keeping a losing relay active.
         #[arg(long)]
         direct_host: String,
         /// ICMP probes per target per round.

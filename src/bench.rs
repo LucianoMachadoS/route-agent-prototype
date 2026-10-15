@@ -93,16 +93,37 @@ pub fn parse_ping_output(output: &str) -> Vec<f64> {
     latencies
 }
 
+/// True if `ping.exe`'s output looks like it actually attempted at least
+/// one probe (a header line plus at least one reply/timeout line, i.e.
+/// more than one non-empty line), as opposed to an immediate DNS/usage
+/// failure, which prints exactly one line and exits before sending
+/// anything. Deliberately locale-independent: it counts lines, it
+/// doesn't match words.
+fn looks_like_a_real_attempt(stdout: &str) -> bool {
+    stdout.lines().filter(|l| !l.trim().is_empty()).count() > 1
+}
+
 /// Runs `ping.exe -n <count> <host>` and parses the round-trip times.
 ///
-/// Only treats this as a hard error when `ping.exe` itself failed to
-/// produce *any* reply AND exited unsuccessfully (bad host/flag, DNS
-/// resolution failure, etc.). Some packet loss with a successful parse is
-/// expected and reported as loss, not an error - `ping.exe` exits non-zero
-/// whenever any probe is lost, even just one of many, so treating every
-/// non-zero exit as a failure would make partial loss indistinguishable
-/// from "the command didn't run", corrupting the exact measurement this
-/// subcommand exists to produce.
+/// A target that is simply unreachable (every probe times out) is a
+/// **valid measurement** - `loss_pct: 100.0`, not an error - because
+/// `monitor`'s hard-failover and `direct`-candidate logic both depend on
+/// seeing that result to act on it. `ping.exe` also exits non-zero for
+/// this case (same as for any partial loss), so exit status alone can't
+/// tell "target is down" apart from "ping.exe never actually attempted a
+/// probe" (bad host/flag, DNS resolution failure) - a real tool-usage
+/// error, which *is* worth surfacing. The distinguishing, locale-
+/// independent signal is line count: a DNS/usage failure prints exactly
+/// one line and exits immediately, while a real attempt - lost or not -
+/// always prints a header plus one line per probe (and usually a stats
+/// trailer), regardless of what language those lines are written in.
+///
+/// (An earlier version of this function treated *every* "zero replies +
+/// non-zero exit" as a hard error, which silently broke hard-failover:
+/// a fully-down relay would error out of the probing loop instead of
+/// producing a 100%-loss measurement, so it would simply vanish from
+/// `monitor`'s round instead of triggering failover. Found via a live
+/// smoke test, not a unit test - see CLAUDE.md.)
 pub fn ping(host: &str, count: u32) -> Result<PingStats> {
     let mut cmd = Command::new(crate::syspath::system32("ping.exe"));
     cmd.arg("-n").arg(count.to_string()).arg(host);
@@ -113,7 +134,7 @@ pub fn ping(host: &str, count: u32) -> Result<PingStats> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let latencies_ms = parse_ping_output(&stdout);
 
-    if latencies_ms.is_empty() && !output.status.success() {
+    if latencies_ms.is_empty() && !looks_like_a_real_attempt(&stdout) {
         return Err(AgentError::CommandFailed {
             command: format!("ping.exe -n {count} {host}"),
             status: output.status.code().unwrap_or(-1),
@@ -317,6 +338,46 @@ Approximate round trip times in milli-seconds:
 ";
         let v = parse_ping_output(sample);
         assert_eq!(v, vec![5.0, 8.0, 4.0]);
+    }
+
+    /// Regression test for the bug found while smoke-testing `monitor`:
+    /// a target that's simply unreachable (every probe times out) must
+    /// still look like "a real attempt" so `ping()` reports it as a
+    /// 100%-loss measurement, not a hard error - see `ping()`'s doc
+    /// comment for why that distinction matters for hard-failover.
+    #[test]
+    fn a_fully_timed_out_attempt_looks_like_a_real_attempt_english() {
+        let sample = "\
+Pinging 203.0.113.1 with 32 bytes of data:
+Request timed out.
+Request timed out.
+Request timed out.
+
+Ping statistics for 203.0.113.1:
+    Packets: Sent = 3, Received = 0, Lost = 3 (100% loss),
+";
+        assert!(looks_like_a_real_attempt(sample));
+        assert_eq!(parse_ping_output(sample), Vec::<f64>::new());
+    }
+
+    #[test]
+    fn a_fully_timed_out_attempt_looks_like_a_real_attempt_portuguese() {
+        let sample = "\
+Disparando 203.0.113.1 com 32 bytes de dados:
+Esgotado o tempo limite do pedido.
+Esgotado o tempo limite do pedido.
+Esgotado o tempo limite do pedido.
+Estatisticas do Ping para 203.0.113.1:
+    Pacotes: Enviados = 3, Recebidos = 0, Perdidos = 3 (100% de perda),
+";
+        assert!(looks_like_a_real_attempt(sample));
+    }
+
+    #[test]
+    fn an_immediate_dns_failure_does_not_look_like_a_real_attempt() {
+        let sample =
+            "Ping request could not find host no.such.host. Please check the name and try again.\n";
+        assert!(!looks_like_a_real_attempt(sample));
     }
 
     #[test]

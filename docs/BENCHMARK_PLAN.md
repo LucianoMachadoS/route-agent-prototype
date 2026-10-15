@@ -72,9 +72,9 @@ escopo da Fase 3). Se for medir manualmente por fora, anote o resultado
 junto do cenário correspondente, mas não trate como um critério de
 aceitação formal ainda.
 
-`monitor` mede o caminho direto (`--direct-host`) apenas como referência
-impressa a cada rodada - ele não é, por ora, um candidato que o seletor
-possa "escolher" (não existe hoje um modo "nenhum túnel ativo"). Se o
-melhor relay disponível ainda for pior que a rota direta, isso só fica
-visível comparando manualmente os números impressos, não é tratado
-automaticamente - ponto aberto para uma iteração futura.
+~~`monitor` mede o caminho direto apenas como referência~~ resolvido: o
+caminho direto (`--direct-host`) agora é pontuado como um candidato
+chamado `direct` (nome reservado - um relay real não pode usar esse
+nome). Se nenhum relay configurado bater a rota direta, `monitor`
+desconecta qualquer túnel ativo em vez de manter um relay perdedor só
+porque era o melhor dos configurados.

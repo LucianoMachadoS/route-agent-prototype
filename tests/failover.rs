@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use route_agent::error::Result;
-use route_agent::relays::RelayProfile;
+use route_agent::relays::{RelayProfile, DIRECT_CANDIDATE};
 use route_agent::routing::selector::{apply_decision, Decision};
 use route_agent::traits::TunnelManager;
 use route_agent::wireguard::ServiceState;
@@ -105,4 +105,42 @@ fn unknown_relay_name_is_an_error() {
     let result = apply_decision(&decision("ghost", false), &relays, &tunnel, &mut active);
     assert!(result.is_err());
     assert!(tunnel.calls.borrow().is_empty());
+}
+
+#[test]
+fn switching_to_direct_disconnects_without_connecting_anything() {
+    let tunnel = FakeTunnel::default();
+    let relays = vec![relay("a", "a.conf")];
+    let mut active: Option<String> = Some("fake-0".to_string());
+
+    apply_decision(
+        &decision(DIRECT_CANDIDATE, false),
+        &relays,
+        &tunnel,
+        &mut active,
+    )
+    .unwrap();
+
+    let calls = tunnel.calls.borrow();
+    assert_eq!(calls.len(), 1, "calls: {calls:?}");
+    assert!(calls[0].starts_with("disconnect(fake-0)"));
+    assert_eq!(active, None);
+}
+
+#[test]
+fn switching_to_direct_with_no_active_tunnel_makes_no_calls() {
+    let tunnel = FakeTunnel::default();
+    let relays = vec![relay("a", "a.conf")];
+    let mut active: Option<String> = None;
+
+    apply_decision(
+        &decision(DIRECT_CANDIDATE, false),
+        &relays,
+        &tunnel,
+        &mut active,
+    )
+    .unwrap();
+
+    assert!(tunnel.calls.borrow().is_empty());
+    assert_eq!(active, None);
 }
