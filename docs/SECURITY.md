@@ -52,14 +52,43 @@ recommendations, not code:
   unauthenticated packets (no banner, no handshake without a valid key),
   so it's not the weak point - everything *else* on a quickly-provisioned
   VPS usually is:
-  - Set a default-deny firewall and only open what you need:
-    `ufw default deny incoming`, then `ufw allow 51820/udp` and your SSH
-    port from a restricted source if possible.
+  - Set a default-deny firewall (both the cloud provider's network
+    firewall AND the OS-level one - `ufw default deny incoming`, then
+    `ufw allow 51820/udp`) and only open what you need.
+  - **On GCP specifically: don't open SSH (22/tcp) to `0.0.0.0/0` at
+    all.** Restrict the firewall rule's source range to
+    `35.235.240.0/20` (Google's Identity-Aware Proxy range) and always
+    connect with `gcloud compute ssh --tunnel-through-iap`. This removes
+    SSH from the public internet entirely instead of just rate-limiting
+    attempts against it - a stronger property than "key-only + fail2ban"
+    on an openly-exposed port, which is the fallback if you're not on
+    GCP. Also disable the serial console (`--metadata=serial-port-enable=FALSE`),
+    a separate access path that bypasses SSH restrictions entirely.
+  - Delete whatever default firewall rules came with a quickly-
+    provisioned VM before trusting it - GCP's default network ships with
+    `default-allow-ssh` (22/tcp from anywhere) **and `default-allow-rdp`
+    (3389/tcp from anywhere, even on a Linux box that will never use
+    it)**. Audit with `gcloud compute firewall-rules list` on day one.
   - SSH: key-only auth, disable password auth
-    (`PasswordAuthentication no`), consider `fail2ban`.
+    (`PasswordAuthentication no`) and root login (`PermitRootLogin no`) -
+    already the default on GCP's stock images, but worth confirming, not
+    assuming. `fail2ban` on top as defense in depth even when SSH is
+    IAP-only, in case the firewall rule is ever loosened by mistake.
   - Enable unattended security updates (`unattended-upgrades` on
     Debian/Ubuntu). An unpatched box with a public IP gets scanned and
     probed constantly regardless of what you run on it.
+  - Confirm `net.ipv4.ip_forward` is `0` (the default) unless you
+    specifically need it - this relay doesn't forward traffic anywhere,
+    and leaving forwarding off means it can't be abused as an open
+    relay/proxy even if something else went wrong.
+  - After setup, audit what's actually reachable from outside with
+    `ss -tulnp` plus the firewall rule list together - a service binding
+    to `0.0.0.0` only matters if the firewall in front of it also allows
+    the traffic through.
+  - Don't leave loose private-key files (`*-private.key` generated during
+    `wg genkey` setup) sitting on disk once their value is embedded in
+    `wg0.conf` - delete them. Keeping two copies of the same secret
+    around is strictly worse than one.
   - Consider a non-default `ListenPort` instead of `51820` - doesn't add
     real cryptographic security, but cuts down on casual mass-scan noise.
 - **DNS-pinned relay endpoints become a bigger risk once selective
