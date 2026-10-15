@@ -4,6 +4,30 @@ Context for working on this project in future sessions. Don't duplicate
 `README.md` (setup/usage) or `docs/SECURITY.md` (threat model) here -
 this is for things that bit us and aren't obvious from reading the code.
 
+## Avast's Ransomware Shield blocks writes inside this Desktop folder
+
+`bench`/`monitor` failed with `error: Acesso negado. (os error 5)` right
+after printing a correct comparison table - the ping/scoring worked, only
+the CSV write failed. Not a code bug: this project lives under
+`...\Desktop\route-agent-prototype\`, which **Avast's Ransomware Shield**
+protects by default, and it blocks a freshly-compiled, unsigned
+`route-agent.exe` from writing there even though the NTFS ACL (checked
+with `icacls`) grants full control. Confirmed by writing the exact same
+binary + CSV path to `%TEMP%` instead, which worked immediately - same
+code, same user, different folder. `PowerShell`'s own `Add-Content` to
+the *same* blocked file also succeeded, because PowerShell is an
+allow-listed trusted app and our own exe isn't.
+
+**Fix**: either add an exclusion for `route-agent.exe` (or the whole
+project folder) in Avast's Ransomware Shield settings, or pass
+`--csv <path outside Desktop/Documents/Pictures>` (e.g.
+`%LOCALAPPDATA%\RouteAgent\runs.csv`). Didn't change the code's
+*default* `docs/runs.csv`/`docs/decisions.csv` paths over this - it's an
+environment-specific AV behavior (Windows' own Controlled Folder Access
+does the same thing to protected folders on other machines), not
+something to design around by default, and `docs/runs.csv` already has
+real history from before this was discovered.
+
 ## Rust toolchain on this machine (Windows 11, pt-BR)
 
 - Rust was **not** installed as of 2026-10-15. Installed via the official

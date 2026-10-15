@@ -225,21 +225,44 @@ impl std::fmt::Display for ServiceState {
     }
 }
 
-/// Parses the numeric state code out of `sc.exe query` output, independent
-/// of the localized state name sc.exe prints alongside it.
+/// Parses the service's numeric state code out of `sc.exe query` output.
+///
+/// This used to look for a line starting with the literal word "STATE" -
+/// which is itself localized (pt-BR Windows prints "ESTADO", not
+/// "STATE"), so this returned `None` for every non-English Windows
+/// install, including the one this project is actually developed on.
+/// Found live, not in `cargo test`: every unit test here used an English
+/// fixture, so the bug was invisible until `status`/`health-check` ran
+/// for real against a tunnel that was genuinely up.
+///
+/// Fixed by not matching any label text at all (English or otherwise):
+/// `sc query`'s *value* for STATE is always a single digit 1-7 followed
+/// by whitespace then a word (`ServiceState::from_code` handles the
+/// digit; the word itself - "RUNNING" or whatever the locale's name for
+/// it is - is never read). The service's TYPE line has the same
+/// "<digits> <word>" shape, but WireGuard always registers tunnels as
+/// WIN32_OWN_PROCESS, whose code (10) falls outside STATE's 1-7 range,
+/// so the two can't collide for the services this function is ever
+/// actually asked to parse.
 pub fn parse_sc_query_state(output: &str) -> Option<ServiceState> {
     for line in output.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("STATE") {
-            // Typical line: "STATE              : 4  RUNNING"
-            let after_colon = rest.split_once(':')?.1.trim();
-            let code_str: String = after_colon
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            if let Ok(code) = code_str.parse::<u32>() {
-                return Some(ServiceState::from_code(code));
-            }
+        let Some((_, after_colon)) = line.split_once(':') else {
+            continue;
+        };
+        let after_colon = after_colon.trim_start();
+        let digits: String = after_colon
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if digits.is_empty() {
+            continue;
+        }
+        let rest = after_colon[digits.len()..].trim_start();
+        if !rest.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            continue; // e.g. WIN32_EXIT_CODE's "0  (0x0)" - not state-shaped
+        }
+        if let Ok(code @ 1..=7) = digits.parse::<u32>() {
+            return Some(ServiceState::from_code(code));
         }
     }
     None
@@ -320,6 +343,38 @@ SERVICE_NAME: WireGuardTunnel$wg-client
     #[test]
     fn parse_sc_query_state_handles_missing_state_line() {
         assert_eq!(parse_sc_query_state("no state here"), None);
+    }
+
+    /// Regression test: real output captured from this exact machine
+    /// (Windows 11, pt-BR) via `sc.exe query state= all`, where sc.exe
+    /// prints "ESTADO" instead of "STATE". Previously returned `None`
+    /// here even though the tunnel was genuinely running.
+    #[test]
+    fn parse_sc_query_state_reads_running_in_portuguese() {
+        let sample = "\
+NOME_DO_SERVICO: WireGuardTunnel$saopaulo-gcp
+NOME_PARA_EXIBICAO: WireGuard Tunnel: saopaulo-gcp
+      TIPO                       : 10  WIN32_OWN_PROCESS
+      ESTADO                     : 4  RUNNING
+                                  (STOPPABLE, NOT_PAUSABLE, ACCEPTS_SHUTDOWN)
+      CODIGO_DE_SAIDA_DO_WIN32   : 0  (0x0)
+";
+        assert_eq!(parse_sc_query_state(sample), Some(ServiceState::Running));
+    }
+
+    #[test]
+    fn parse_sc_query_state_skips_type_line_even_without_a_preceding_match() {
+        // TYPE's value (10) is outside STATE's 1-7 range, so this must
+        // not be mistaken for the state even when it's the only
+        // digit-shaped line seen before the real STATE line.
+        let sample = "\
+      TIPO                       : 10  WIN32_OWN_PROCESS
+      ESTADO                     : 2  START_PENDING
+";
+        assert_eq!(
+            parse_sc_query_state(sample),
+            Some(ServiceState::StartPending)
+        );
     }
 
     #[test]
