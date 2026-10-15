@@ -7,8 +7,14 @@
 *-private.key
 *-public.key
 
-# Generated bench history (local measurements, not source).
+# Generated bench/monitor history (local measurements, not source).
 docs/runs.csv
+docs/decisions.csv
+
+# Real relay registry can reference relay names/config paths - keep only
+# the template in git.
+relays.toml
+!relays.toml.template
 
 # Scratch copy of the old zip, extracted here just to recover the lost
 # README.md - already merged back into README.md, safe to delete.

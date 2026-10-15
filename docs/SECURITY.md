@@ -70,10 +70,12 @@ recommendations, not code:
   traffic-redirection/MITM vector. When you implement that milestone,
   either pin the relay's IP directly or add external monitoring on that
   DNS record.
-- **`docs/runs.csv` (gitignored) can contain topology hints** - relay
-  region/ISP if you put them in `--note`. It never leaves your machine via
-  this tool, but don't paste raw rows into a public issue/forum post for
-  support without trimming that column.
+- **`docs/runs.csv`, `docs/decisions.csv` and `relays.toml` (all
+  gitignored) can contain topology hints** - relay region/ISP in
+  `bench --note`, or relay names/config paths in `relays.toml`. None of
+  this leaves your machine via this tool, but don't paste raw rows or
+  your `relays.toml` into a public issue/forum post for support without
+  trimming that info first.
 - **Error output can include local file paths.** `CommandFailed`/`Spawn`
   errors echo the failing command and its stderr/stdout verbatim. Nothing
   in this project writes a key there, but if you're pasting an error

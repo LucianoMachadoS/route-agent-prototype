@@ -3,9 +3,12 @@
 A small Rust CLI that controls the **official WireGuard for Windows**
 tunnel service. It does not implement WireGuard cryptography, install a
 custom driver, capture packets, or route game traffic selectively. The
-first milestone is a reliable tunnel between a Windows 10/11 client and a
-Linux relay you control; the second is measuring whether that relay's route
-is actually better than your direct path.
+roadmap: a reliable tunnel between a Windows 10/11 client and a Linux
+relay you control (`connect`/`disconnect`/`status`); measuring whether a
+relay's route is actually better than your direct path (`bench`); and
+automatically picking the best of several relays, with failover
+(`monitor`) - see [`docs/BENCHMARK_PLAN.md`](docs/BENCHMARK_PLAN.md) for
+how to actually validate that last part before trusting it.
 
 ## Safety / scope
 
@@ -31,15 +34,26 @@ is actually better than your direct path.
 ```text
 Rust CLI (route-agent)
   ├── connect/disconnect/status
-  │    └── std::process::Command (no shell)
+  │    └── TunnelManager (wireguard.rs) - std::process::Command, no shell
   │         └── official wireguard.exe / sc.exe
   │              └── WireGuardTunnel$<config-stem> Windows service
   │                   └── encrypted WireGuard UDP tunnel
   │                        └── Linux relay (wg-quick / wg)
-  └── bench
-       └── ping.exe (direct host, then tunnel host)
-            └── median/p95/p99/jitter/loss -> docs/runs.csv
+  ├── bench
+  │    └── Probe (bench.rs) - ping.exe (direct host, then tunnel host)
+  │         └── median/p95/p99/jitter/loss -> docs/runs.csv
+  └── monitor (Phase 3)
+       ├── relays.rs            - loads relays.toml (candidates + weights)
+       ├── routing::score       - weighted, normalized score per round
+       ├── routing::selector    - rolling window, hysteresis, cooldown,
+       │                          hard failover -> Decision
+       └── apply_decision()     - disconnect old / connect new TunnelManager
+            └── docs/decisions.csv
 ```
+
+`traits.rs` defines `Probe`/`TunnelManager` so `routing::selector` can be
+unit-tested with fakes (`tests/failover.rs`) instead of needing a real
+network or an installed WireGuard client.
 
 ## Requirements
 
@@ -171,6 +185,45 @@ service — run it before and after `connect` to see the difference, and
 across different relays to decide if a given relay is worth using for a
 given game server.
 
+## Automatic relay selection and failover (`monitor`)
+
+Once you have two or more relays worth comparing, `monitor` does
+continuously what `bench` does once: probe every candidate, score them,
+and switch the active tunnel to whichever one wins - with hysteresis (no
+flapping over noise) and a fast path for outright failure.
+
+1. Copy [`relays.toml.template`](relays.toml.template) to `relays.toml`
+   and list your relays (each `config` points at a real `.conf`, same as
+   `connect` takes):
+
+   ```toml
+   [[relay]]
+   name = "fra1"
+   config = "C:/ProgramData/RouteAgent/fra1.conf"
+   tunnel_host = "10.66.0.1"
+   ```
+
+2. Run it (Administrator, since it calls `connect`/`disconnect` under the
+   hood unless `--dry-run`):
+
+   ```powershell
+   .\target\release\route-agent.exe monitor `
+     --relays relays.toml `
+     --direct-host <ip-ou-host-do-servidor-do-jogo> `
+     --interval 30
+   ```
+
+   Add `--dry-run` to only print/log what it *would* do, and `--rounds N`
+   to stop after N rounds instead of running forever (useful for a quick
+   check without a real relay - see the smoke test in
+   [`docs/BENCHMARK_PLAN.md`](docs/BENCHMARK_PLAN.md)).
+
+Every round's scores and whether a switch happened are appended to
+`docs/decisions.csv`. The direct host is only printed for reference each
+round - it isn't (yet) something the selector can pick, so if every relay
+is worse than your direct path that only shows up by reading the numbers
+yourself, not automatically.
+
 ## CLI reference
 
 ```text
@@ -178,28 +231,39 @@ route-agent connect    --config <PATH> [--wireguard <PATH>]
 route-agent disconnect --name <TUNNEL_NAME> [--wireguard <PATH>]
 route-agent status     --name <TUNNEL_NAME>
 route-agent bench      --direct-host <HOST> [--tunnel-host <HOST>] [--count <N>] [--note <TEXT>] [--csv <PATH>]
+route-agent monitor    --relays <PATH> --direct-host <HOST> [--count <N>] [--interval <SECS>] [--rounds <N>] [--dry-run] [--csv <PATH>] [--wireguard <PATH>]
 ```
 
 Options:
-- `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`.
+- `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`.
 - Alternatively set the `WIREGUARD_EXE` environment variable. The flag
   wins if both are set; if neither is set, the standard install locations
   and then `PATH` are searched.
 - `bench --tunnel-host` defaults to `10.66.0.1` (the relay's tunnel
   address from `examples/relay-wg0.conf.template`).
-- `bench --count` defaults to 20 probes per host.
-- `bench --csv` defaults to `docs/runs.csv`.
+- `bench --count` / `monitor --count` default to 20 / 10 probes per host.
+- `bench --csv` defaults to `docs/runs.csv`; `monitor --csv` defaults to
+  `docs/decisions.csv`.
+- `monitor --interval` defaults to 30 seconds between rounds.
 
 ## Current limitations
 
-- No automatic route scoring, relay discovery, game/process detection, UI,
-  auto-reconnect, or multipath.
+- `monitor` only scores the relays in `relays.toml` against each other -
+  it doesn't compare against "no tunnel at all", so a direct connection
+  that beats every relay isn't detected automatically (see
+  `docs/BENCHMARK_PLAN.md`).
+- No relay discovery, game/process detection, UI, or multipath - all
+  still deferred per the project roadmap.
 - `status` reports Windows service state, not a cryptographic handshake or
   end-to-end health check.
 - No full-tunnel `AllowedIPs = 0.0.0.0/0`; this is intentional to avoid
   unexpectedly redirecting all network traffic.
-- `bench` measures ICMP latency/jitter/loss, which correlates with but is
-  not identical to a given game's actual (often UDP) traffic performance.
+- `bench`/`monitor` measure ICMP latency/jitter/loss, which correlates
+  with but is not identical to a given game's actual (often UDP) traffic
+  performance.
+- The scoring weights in `relays.toml.template` are starting defaults, not
+  tuned values - see `docs/BENCHMARK_PLAN.md` before trusting a specific
+  relay choice.
 - The CLI checks input paths and tunnel names, but this is a learning
   prototype, not a production security boundary.
 - Windows service state can take a moment to settle after install/uninstall.
@@ -208,12 +272,13 @@ Options:
 
 1. Add structured logs and a `health-check` that tests the tunnel endpoint
    (a real WireGuard handshake check, not just service state).
-2. ~~Add relay telemetry (latency/jitter/loss)~~ done via `bench`; still
-   missing: a route scoring library that picks the best relay automatically
-   from a set of candidates.
+2. Let `monitor` treat "no tunnel" as a selectable candidate, so a relay
+   that's worse than the direct path doesn't get used just because it's
+   the best of the configured relays.
 3. Add explicit consent/configuration for selective application routing,
    using documented Windows networking mechanisms (this needs NAT/
    forwarding on the relay for the game server's IP, not just the client's
    tunnel `/32`, which the relay config does not yet allow).
-4. Only then explore failover and multipath in a controlled test
-   environment.
+4. Only then explore multipath in a controlled test environment, and a
+   native (egui) GUI once Phase 3 is validated per
+   `docs/BENCHMARK_PLAN.md`.

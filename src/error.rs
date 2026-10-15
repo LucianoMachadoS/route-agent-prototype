@@ -28,6 +28,12 @@ pub enum AgentError {
     #[error("could not read service status for tunnel '{0}'")]
     StatusUnknown(String),
 
+    #[error("invalid relay config '{path}': {reason}")]
+    RelayConfigInvalid { path: PathBuf, reason: String },
+
+    #[error("no healthy relay available among the configured candidates")]
+    NoHealthyRelay,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

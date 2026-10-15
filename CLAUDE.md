@@ -77,14 +77,51 @@ it with `Write`, even when asked to work fast.
 ```powershell
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"   # if cargo isn't found
 cargo fmt
-cargo test            # 15 tests as of this writing, all pure/offline
+cargo test            # 37 tests as of this writing (31 lib + 4 + 2 integration), all pure/offline
 cargo build --release
 ```
 
 `cargo test` doesn't touch the network or need WireGuard/admin - it's all
-unit tests on the parsers/stats/CSV writer. Actually exercising
-`connect`/`disconnect`/`status`/`bench` end-to-end needs: WireGuard for
-Windows installed, a real relay, and (for `connect`/`disconnect`) an
-elevated terminal. `bench` alone can be smoke-tested against any two
-public IPs without any of that (e.g. `--direct-host 1.1.1.1 --tunnel-host
-8.8.8.8`) - that's how the ping-parser bug above was actually found.
+unit tests on the parsers/stats/CSV writer/scoring/selector, plus fakes
+for `Probe`/`TunnelManager`. Actually exercising `connect`/`disconnect`/
+`status`/`bench`/`monitor` end-to-end needs: WireGuard for Windows
+installed, a real relay, and (for `connect`/`disconnect`/`monitor`
+without `--dry-run`) an elevated terminal. `bench`/`monitor --dry-run`
+can both be smoke-tested against public IPs without any of that (e.g.
+`bench --direct-host 1.1.1.1 --tunnel-host 8.8.8.8`, or a `relays.toml`
+whose `tunnel_host`s are public IPs) - that's how the ping-parser bug
+above was actually found, and how `monitor`'s cooldown/hysteresis was
+confirmed to behave correctly end-to-end before trusting the unit tests
+alone.
+
+## Phase 3 (routing/selector) - why it's a lib+bin crate now
+
+This crate was binary-only (`src/main.rs` only) through Phase 2.
+`tests/route_scoring.rs` and `tests/failover.rs` need to import
+`routing::selector`, `traits::TunnelManager`, etc. from *outside* the
+crate (integration tests are their own crate) - that's only possible
+through a library target. So there's now a `src/lib.rs` that declares
+every module `pub`, and `src/main.rs` does
+`use route_agent::{bench, monitor, wireguard};` instead of its own `mod`
+declarations. If you add a new module, declare it in `lib.rs`, not (only)
+with a `mod` statement in `main.rs` - the build error if you forget
+(`unresolved import` from `main.rs` or from a file under `tests/`) is
+usually this.
+
+Design choices in `routing/` worth knowing before changing them:
+
+- `Selector::evaluate` is pure (no I/O) on purpose - `apply_decision` is
+  the one place that touches a real (or faked) `TunnelManager`. Keep it
+  that way; it's what makes `src/routing/selector.rs`'s own `#[cfg(test)]
+  mod tests` possible without mocks for most of the logic.
+- Scoring normalizes RTT/jitter/loss **min-max within the current
+  round**, not against history - no baseline/calibration step needed,
+  but it does mean a round with only one relay always scores it `0.0`
+  (nothing to normalize against). That's expected, not a bug.
+- `relays.toml`'s `tunnel_host` can repeat the same IP (e.g.
+  `10.66.0.1`) across every relay - only one tunnel is ever active at a
+  time, so there's no real collision; don't "fix" this into unique
+  per-relay subnets unless you're also building concurrent multi-tunnel
+  support (explicitly out of scope for now).
+- `monitor --direct-host` is informational only, not a candidate the
+  selector can pick - see the open item in `docs/BENCHMARK_PLAN.md`.

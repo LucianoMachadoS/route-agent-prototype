@@ -1,0 +1,26 @@
+# TEMPLATE ONLY. Copy to relays.toml and fill in your own relays.
+#
+# `config` points at a real WireGuard client .conf for that relay (see
+# examples/client.conf.template). `route-agent monitor` switches the
+# active tunnel by disconnecting the current relay's service and
+# connecting this one's - repeating the same tunnel_host (e.g. 10.66.0.1)
+# across relays is fine, since only one tunnel is ever active at a time.
+
+[scoring]
+# Weights for S = w_rtt*RTT + w_jitter*Jitter + w_loss*Loss + w_instability*Instability
+# (lower score wins). These are starting defaults, not tuned values - see
+# docs/BENCHMARK_PLAN.md before trusting them for a real decision.
+w_rtt = 0.4
+w_jitter = 0.25
+w_loss = 0.30
+w_instability = 0.05
+
+[[relay]]
+name = "fra1"
+config = "C:/ProgramData/RouteAgent/fra1.conf"
+tunnel_host = "10.66.0.1"
+
+[[relay]]
+name = "ams1"
+config = "C:/ProgramData/RouteAgent/ams1.conf"
+tunnel_host = "10.66.0.1"

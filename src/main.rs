@@ -5,24 +5,26 @@
 //!   disconnect - stop & uninstall the tunnel's Windows service
 //!   status     - report whether the tunnel's Windows service is running
 //!   bench      - compare direct vs. tunnel latency/jitter/loss and log it
+//!   monitor    - Phase 3: probe multiple relay candidates, score them, and
+//!                (unless --dry-run) switch the active tunnel automatically
 //!
 //! See README.md for setup (you need your own relay) and docs/experiments.md
-//! for the measurement protocol `bench` automates.
-
-mod bench;
-mod error;
-mod syspath;
-mod wireguard;
+//! / docs/BENCHMARK_PLAN.md for the measurement protocols `bench`/`monitor`
+//! automate. Everything here is thin CLI glue - the actual logic lives in
+//! the `route_agent` library (src/lib.rs), so `tests/*.rs` can exercise it
+//! without going through this binary.
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+use route_agent::{bench, monitor, wireguard};
+
 #[derive(Parser)]
 #[command(
     name = "route-agent",
     version,
-    about = "Controller for an official WireGuard for Windows tunnel: connect/disconnect it and measure direct-vs-tunnel latency to a game server."
+    about = "Controller for an official WireGuard for Windows tunnel: connect/disconnect it, measure direct-vs-tunnel latency, and (via `monitor`) automatically pick the best of several relays."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -76,6 +78,38 @@ enum Commands {
         #[arg(long, default_value = "docs/runs.csv")]
         csv: PathBuf,
     },
+    /// Continuously probe multiple relay candidates (see relays.toml.template)
+    /// plus a direct host, score them, and switch the active tunnel to
+    /// whichever relay wins - unless --dry-run, which only logs the decision.
+    Monitor {
+        /// Path to a relays.toml (see relays.toml.template).
+        #[arg(long)]
+        relays: PathBuf,
+        /// Host/IP to ping directly, for reference (not a switch candidate).
+        #[arg(long)]
+        direct_host: String,
+        /// ICMP probes per target per round.
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=1000))]
+        count: u32,
+        /// Seconds to wait between rounds.
+        #[arg(long, default_value_t = 30)]
+        interval: u64,
+        /// Stop after this many rounds instead of running forever (useful
+        /// for smoke-testing without a real relay).
+        #[arg(long)]
+        rounds: Option<u32>,
+        /// Evaluate and log decisions, but never actually connect/disconnect
+        /// the real tunnel.
+        #[arg(long)]
+        dry_run: bool,
+        /// Where to append the decision log.
+        #[arg(long, default_value = "docs/decisions.csv")]
+        csv: PathBuf,
+        /// Path to wireguard.exe. Falls back to WIREGUARD_EXE, then standard
+        /// install locations, then PATH.
+        #[arg(long, env = "WIREGUARD_EXE")]
+        wireguard: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -97,9 +131,32 @@ fn main() {
         Commands::Status { name } => wireguard::status(&name).map(|state| {
             println!("Tunnel '{name}': {state}");
         }),
-        Commands::Bench { direct_host, tunnel_host, count, note, csv } => {
-            bench::run(&direct_host, &tunnel_host, count, &note, &csv)
-        }
+        Commands::Bench {
+            direct_host,
+            tunnel_host,
+            count,
+            note,
+            csv,
+        } => bench::run(&direct_host, &tunnel_host, count, &note, &csv),
+        Commands::Monitor {
+            relays,
+            direct_host,
+            count,
+            interval,
+            rounds,
+            dry_run,
+            csv,
+            wireguard,
+        } => monitor::run(
+            &relays,
+            &direct_host,
+            count,
+            interval,
+            rounds,
+            dry_run,
+            &csv,
+            wireguard,
+        ),
     };
 
     if let Err(err) = result {

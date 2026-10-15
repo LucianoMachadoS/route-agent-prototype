@@ -2,12 +2,12 @@
 //! tunnel, compute comparable stats, print them, and append a row to a CSV
 //! log — operationalizing the manual worksheet in `docs/experiments.md`.
 
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
 use crate::error::{AgentError, Result};
+use crate::telemetry::{append_line, csv_field, fmt_opt};
+use crate::traits::{Measurement, Probe};
 
 /// Round-trip samples and loss info from one `ping.exe` run.
 #[derive(Debug, Clone)]
@@ -133,7 +133,7 @@ pub fn ping(host: &str, count: u32) -> Result<PingStats> {
 /// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`, via PowerShell with an
 /// explicit format string so it doesn't depend on system locale and we
 /// don't need to add a date-handling crate just for this.
-fn utc_timestamp() -> Result<String> {
+pub(crate) fn utc_timestamp() -> Result<String> {
     let mut cmd = Command::new(crate::syspath::windows_powershell());
     cmd.args([
         "-NoProfile",
@@ -145,20 +145,6 @@ fn utc_timestamp() -> Result<String> {
         source,
     })?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn fmt_opt(v: Option<f64>) -> String {
-    v.map(|x| format!("{x:.1}"))
-        .unwrap_or_else(|| "-".to_string())
-}
-
-/// Quotes a CSV field if it contains a comma, quote or newline.
-fn csv_field(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
 }
 
 pub struct RunRow {
@@ -174,23 +160,11 @@ pub struct RunRow {
 const CSV_HEADER: &str = "timestamp_utc,note,probe_count,direct_host,direct_median_ms,direct_p95_ms,direct_p99_ms,direct_jitter_ms,direct_loss_pct,tunnel_host,tunnel_median_ms,tunnel_p95_ms,tunnel_p99_ms,tunnel_jitter_ms,tunnel_loss_pct";
 
 /// Appends one comparison row to `csv_path`, creating it with a header if
-/// it doesn't exist yet.
+/// it doesn't exist yet. The actual "open, write header once, append
+/// line" logic lives in `telemetry::append_line`, shared with `monitor`'s
+/// decision log.
 pub fn append_run_csv(csv_path: &Path, row: &RunRow) -> Result<()> {
-    let is_new = !csv_path.is_file();
-    if let Some(parent) = csv_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(csv_path)?;
-    if is_new {
-        writeln!(file, "{CSV_HEADER}")?;
-    }
-    writeln!(
-        file,
+    let line = format!(
         "{},{},{},{},{},{},{},{},{:.1},{},{},{},{},{},{:.1}",
         csv_field(&row.timestamp_utc),
         csv_field(&row.note),
@@ -207,8 +181,8 @@ pub fn append_run_csv(csv_path: &Path, row: &RunRow) -> Result<()> {
         fmt_opt(row.tunnel.percentile(99.0)),
         fmt_opt(row.tunnel.jitter()),
         row.tunnel.loss_pct(),
-    )?;
-    Ok(())
+    );
+    append_line(csv_path, CSV_HEADER, &line)
 }
 
 fn print_comparison(label: &str, host: &str, stats: &PingStats) {
@@ -274,6 +248,30 @@ pub fn run(
     println!();
     println!("Appended run to {}", csv_path.display());
     Ok(())
+}
+
+impl Measurement {
+    pub fn from_ping_stats(stats: &PingStats) -> Self {
+        Measurement {
+            rtt_p95_ms: stats.percentile(95.0),
+            jitter_ms: stats.jitter(),
+            loss_pct: stats.loss_pct(),
+            available: stats.received() > 0,
+        }
+    }
+}
+
+/// `Probe` implementation backed by the real `ping()` above. `monitor`
+/// depends on the `Probe` trait, not this struct directly, so its
+/// selector logic can be tested with a fake instead of sending real ICMP
+/// traffic.
+pub struct PingProbe;
+
+impl Probe for PingProbe {
+    fn measure(&self, target: &str, count: u32) -> Result<Measurement> {
+        let stats = ping(target, count)?;
+        Ok(Measurement::from_ping_stats(&stats))
+    }
 }
 
 #[cfg(test)]

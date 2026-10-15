@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use crate::error::{AgentError, Result};
+use crate::traits::TunnelManager;
 
 /// Service name prefix WireGuard for Windows registers tunnels under.
 const SERVICE_PREFIX: &str = "WireGuardTunnel$";
@@ -257,6 +258,29 @@ pub fn status(name: &str) -> Result<ServiceState> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_sc_query_state(&stdout).ok_or_else(|| AgentError::StatusUnknown(name.to_string()))
+}
+
+/// `TunnelManager` implementation backed by the real `wireguard.exe`/
+/// `sc.exe` functions above. `routing::selector` depends on the
+/// `TunnelManager` trait, not this struct directly, so tests can swap in
+/// a fake instead of needing a real WireGuard install + Administrator.
+#[derive(Debug, Clone, Default)]
+pub struct WireGuardTunnel {
+    pub wireguard_exe: Option<PathBuf>,
+}
+
+impl TunnelManager for WireGuardTunnel {
+    fn connect(&self, config: &Path) -> Result<String> {
+        install_and_start(config, self.wireguard_exe.as_deref())
+    }
+
+    fn disconnect(&self, name: &str) -> Result<()> {
+        stop_and_uninstall(name, self.wireguard_exe.as_deref())
+    }
+
+    fn status(&self, name: &str) -> Result<ServiceState> {
+        status(name)
+    }
 }
 
 #[cfg(test)]
