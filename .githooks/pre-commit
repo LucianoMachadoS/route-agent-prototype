@@ -1,0 +1,37 @@
+#!/bin/sh
+# Pre-commit secret guard for route-agent.
+#
+# Enable once per clone with:
+#   git config core.hooksPath .githooks
+#
+# Blocks a commit that would add:
+#   1) a real (non-template) WireGuard .conf file, even if someone forces
+#      it past .gitignore with `git add -f`;
+#   2) a line that looks like a real WireGuard Private/PresharedKey value
+#      (44-char base64), wherever it appears - a .conf file, but also a
+#      README, a doc, a stray .txt, etc.
+
+set -e
+
+bad_confs=$(git diff --cached --name-only --diff-filter=AM \
+  | grep -E '\.conf$' \
+  | grep -v '\.conf\.template$' || true)
+
+if [ -n "$bad_confs" ]; then
+  echo "pre-commit: refusing to commit real .conf file(s) (they hold private keys):" >&2
+  echo "$bad_confs" >&2
+  echo "Only examples/*.conf.template belongs in git." >&2
+  exit 1
+fi
+
+key_hits=$(git diff --cached -U0 -- . ':(exclude)*.template' \
+  | grep -E '^\+.*(Private|Preshared)Key[[:space:]]*=[[:space:]]*[A-Za-z0-9+/=]{43,44}' || true)
+
+if [ -n "$key_hits" ]; then
+  echo "pre-commit: refusing to commit - this looks like a real WireGuard key:" >&2
+  echo "$key_hits" >&2
+  echo "If this is a placeholder, it belongs in a *.template file as <SOMETHING_KEY>." >&2
+  exit 1
+fi
+
+exit 0

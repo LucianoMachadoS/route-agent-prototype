@@ -11,6 +11,7 @@
 
 mod bench;
 mod error;
+mod syspath;
 mod wireguard;
 
 use std::path::PathBuf;
@@ -64,8 +65,9 @@ enum Commands {
         /// Host/IP to ping through the tunnel (default: the relay's tunnel address).
         #[arg(long, default_value = "10.66.0.1")]
         tunnel_host: String,
-        /// Number of ICMP probes per host.
-        #[arg(long, default_value_t = 20)]
+        /// Number of ICMP probes per host (1-1000, to avoid accidentally
+        /// flooding a host you don't control).
+        #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=1000))]
         count: u32,
         /// Free-text context for this run (relay region, ISP, etc.) - stored in the CSV log.
         #[arg(long, default_value = "")]

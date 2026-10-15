@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings even when core.autocrlf converts
+# everything else to CRLF on checkout - CRLF breaks the #!/bin/sh shebang
+# under Git Bash's sh.
+.githooks/* text eol=lf
+*.sh text eol=lf

@@ -19,6 +19,12 @@ is actually better than your direct path.
   because they install/remove a Windows service.
 - This prototype uses the official `wireguard.exe` CLI; it does not
   reproduce proprietary ExitLag (or any other third-party) code.
+- See [`docs/SECURITY.md`](docs/SECURITY.md) for the full threat model:
+  what's mitigated in code (safe subprocess calls, no keys in argv,
+  locked-down config permissions, no PATH-hijackable binaries) and what's
+  on you (relay hardening, key rotation if something leaks). Run
+  `git config core.hooksPath .githooks` once per clone to enable a
+  pre-commit check that blocks committing a real key by accident.
 
 ## Architecture
 

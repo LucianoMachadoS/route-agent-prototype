@@ -94,8 +94,17 @@ pub fn parse_ping_output(output: &str) -> Vec<f64> {
 }
 
 /// Runs `ping.exe -n <count> <host>` and parses the round-trip times.
+///
+/// Only treats this as a hard error when `ping.exe` itself failed to
+/// produce *any* reply AND exited unsuccessfully (bad host/flag, DNS
+/// resolution failure, etc.). Some packet loss with a successful parse is
+/// expected and reported as loss, not an error - `ping.exe` exits non-zero
+/// whenever any probe is lost, even just one of many, so treating every
+/// non-zero exit as a failure would make partial loss indistinguishable
+/// from "the command didn't run", corrupting the exact measurement this
+/// subcommand exists to produce.
 pub fn ping(host: &str, count: u32) -> Result<PingStats> {
-    let mut cmd = Command::new("ping.exe");
+    let mut cmd = Command::new(crate::syspath::system32("ping.exe"));
     cmd.arg("-n").arg(count.to_string()).arg(host);
     let output = cmd.output().map_err(|source| AgentError::Spawn {
         command: format!("ping.exe -n {count} {host}"),
@@ -103,6 +112,18 @@ pub fn ping(host: &str, count: u32) -> Result<PingStats> {
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let latencies_ms = parse_ping_output(&stdout);
+
+    if latencies_ms.is_empty() && !output.status.success() {
+        return Err(AgentError::CommandFailed {
+            command: format!("ping.exe -n {count} {host}"),
+            status: output.status.code().unwrap_or(-1),
+            stderr: {
+                let combined = format!("{}{}", String::from_utf8_lossy(&output.stderr), stdout);
+                combined.trim().to_string()
+            },
+        });
+    }
+
     Ok(PingStats {
         sent: count,
         latencies_ms,
@@ -113,7 +134,7 @@ pub fn ping(host: &str, count: u32) -> Result<PingStats> {
 /// explicit format string so it doesn't depend on system locale and we
 /// don't need to add a date-handling crate just for this.
 fn utc_timestamp() -> Result<String> {
-    let mut cmd = Command::new("powershell.exe");
+    let mut cmd = Command::new(crate::syspath::windows_powershell());
     cmd.args([
         "-NoProfile",
         "-Command",
