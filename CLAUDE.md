@@ -4,6 +4,26 @@ Context for working on this project in future sessions. Don't duplicate
 `README.md` (setup/usage) or `docs/SECURITY.md` (threat model) here -
 this is for things that bit us and aren't obvious from reading the code.
 
+## Current state (check this first in a new session)
+
+`brasil-instance` (the GCP relay, `southamerica-east1-a`) was stopped at
+the end of the previous session to avoid paying for idle time - status
+`TERMINATED`. The Windows tunnel was disconnected to match (no point
+leaving it "connected" to a dead endpoint). Before resuming:
+
+1. `gcloud compute instances start brasil-instance --zone southamerica-east1-a`
+2. **Check the external IP didn't change** - it's ephemeral, not
+   reserved, so a stop/start cycle can reassign it:
+   `gcloud compute instances describe brasil-instance --zone southamerica-east1-a --format="value(networkInterfaces[0].accessConfigs[0].natIP)"`.
+   If it's still `34.95.142.255`, nothing else to do. If it changed,
+   `write-saopaulo-conf.ps1` (behind the `RouteAgent-Connect-SaoPaulo`
+   Scheduled Task - see below) has that IP hardcoded in its `Endpoint =`
+   line and needs updating before reconnecting.
+3. Then `schtasks /run /tn "RouteAgent-Connect-SaoPaulo"` (no elevation
+   needed - see the Scheduled Task section below) brings the tunnel back
+   up with the known-good `AllowedIPs` (legacy CS2 ranges +
+   `155.133.0.0/16` SDR).
+
 ## Real bug: `detect-remote` crashed on every round during an actual match
 
 `gamedetect::detect_remote_ips` used `Select-Object -ExpandProperty
