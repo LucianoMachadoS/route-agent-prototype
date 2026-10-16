@@ -240,6 +240,65 @@ relay is worse than just staying on the direct connection, `monitor`
 disconnects any active tunnel instead of keeping a losing relay active
 just because it was the best of the configured ones.
 
+## Routing real game traffic through the relay (NAT)
+
+By default the tunnel only reaches the relay's own tunnel address
+(`AllowedIPs = 10.66.0.0/24`) - nothing else gets routed through it, by
+design (see "Safety / scope"). To actually route a game's traffic
+through the relay, two things both have to happen, on two different
+machines:
+
+1. **Windows client**: add the destination IP/range to the `.conf`'s
+   `AllowedIPs` - this is what `add-game-route`/`watch-game` automate
+   (see above).
+2. **Linux relay**: allow forwarding *to that same range*, with NAT so
+   the return traffic can find its way back. This part is **manual** -
+   route-agent doesn't manage SSH access to a relay in code.
+
+On the relay, for each IP range you want to allow (replace
+`10.66.0.2/32` with your client's tunnel address, `205.185.192.0/19` with
+the actual range, and `ens4` with the relay's real external interface -
+check with `ip route show default`):
+
+```bash
+# One-time: allow forwarding at all.
+echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-wireguard-forward.conf
+sudo sysctl -p /etc/sysctl.d/99-wireguard-forward.conf
+
+# NAT: insert into the *nat table* at the very top of /etc/ufw/before.rules
+# (before the existing *filter table), one block, ending in COMMIT:
+#   *nat
+#   :POSTROUTING ACCEPT [0:0]
+#   -A POSTROUTING -s 10.66.0.2/32 -d 205.185.192.0/19 -o ens4 -j MASQUERADE
+#   COMMIT
+# Careful: a before.rules file normally has *two* "COMMIT" lines (nat and
+# filter) - inserting with a naive `sed '/^COMMIT$/i ...'` matches both
+# and corrupts the filter table ("No chain/target/match by that name" on
+# the next `ufw enable`). Insert by line number or prepend a whole block
+# instead, and always check `sudo ufw status verbose` plus
+# `sudo iptables -t nat -L POSTROUTING -n -v` afterward.
+
+# Allow the actual forwarding, scoped to exactly this client and range:
+sudo ufw route allow in on wg0 out on ens4 from 10.66.0.2 to 205.185.192.0/19
+sudo ufw disable && sudo ufw --force enable
+```
+
+If you add a NAT line to `before.rules` more than once without flushing
+first, `iptables -t nat -L POSTROUTING` accumulates duplicate (harmless
+but messy) entries on every `ufw` reload - flush and reapply cleanly with
+`sudo bash -c 'iptables -t nat -F POSTROUTING && iptables-restore -n -T nat < /etc/ufw/before.rules'`.
+
+**Finding the right range isn't obvious.** A game server's IP changes
+per match, and (for CS2 at least) isn't even the real game server - it's
+a Valve SDR relay point-of-presence (check the game's own console: CS2's
+`status`/`net_graph 1` shows lines like `Selecting gru#1
+(155.133.227.35:27015) as primary` - `155.133.0.0/16` is Valve's own
+relay network, a *different* range than their older, pre-SDR matchmaking
+IP ranges that are documented on GitHub). Verify with a live match
+(`detect-remote`) rather than trusting a community IP list blindly - see
+`docs/SECURITY.md` for why a found-online range should be treated as a
+starting hypothesis, not ground truth.
+
 ## CLI reference
 
 ```text
@@ -249,10 +308,13 @@ route-agent status     --name <TUNNEL_NAME>
 route-agent health-check --name <TUNNEL_NAME> --tunnel-host <HOST> [--count <N>]
 route-agent bench      --direct-host <HOST> [--tunnel-host <HOST>] [--count <N>] [--note <TEXT>] [--csv <PATH>]
 route-agent monitor    --relays <PATH> --direct-host <HOST> [--count <N>] [--interval <SECS>] [--rounds <N>] [--dry-run] [--csv <PATH>] [--wireguard <PATH>]
+route-agent detect-remote   --process <NAME>
+route-agent add-game-route  --config <PATH> --name <TUNNEL_NAME> --process <NAME> [--cidr <PREFIX>] [--wireguard <PATH>]
+route-agent watch-game      --config <PATH> --name <TUNNEL_NAME> --process <NAME> [--cidr <PREFIX>] [--interval <SECS>] [--rounds <N>] [--wireguard <PATH>]
 ```
 
 Options:
-- `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`.
+- `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`/`add-game-route`/`watch-game`.
 - `health-check --count` defaults to 5 probes.
 - Alternatively set the `WIREGUARD_EXE` environment variable. The flag
   wins if both are set; if neither is set, the standard install locations
@@ -262,7 +324,45 @@ Options:
 - `bench --count` / `monitor --count` default to 20 / 10 probes per host.
 - `bench --csv` defaults to `docs/runs.csv`; `monitor --csv` defaults to
   `docs/decisions.csv`.
-- `monitor --interval` defaults to 30 seconds between rounds.
+- `monitor --interval` defaults to 30 seconds between rounds;
+  `watch-game --interval` defaults to 20.
+- `add-game-route`/`watch-game --cidr <N>` expands each detected server
+  IP to its containing `/N` instead of an exact `/32`.
+
+## Automatic selective routing (`detect-remote` / `add-game-route` / `watch-game`)
+
+README milestone 3 used to mean manually finding a game's current server
+IP (`Get-NetUDPEndpoint`), editing `AllowedIPs` by hand, and reconnecting.
+route-agent now does this itself:
+
+```powershell
+# Just see what IP(s) a game process is currently talking to (read-only,
+# no admin needed) - only meaningful while a match is in progress:
+.\target\release\route-agent.exe detect-remote --process cs2.exe
+
+# Detect + add to AllowedIPs + reconnect, once:
+.\target\release\route-agent.exe add-game-route --config saopaulo-gcp.conf --name saopaulo-gcp --process cs2.exe --cidr 24
+
+# Or keep doing that automatically while you play, instead of re-running
+# it by hand every time you're matched into a different server:
+.\target\release\route-agent.exe watch-game --config saopaulo-gcp.conf --name saopaulo-gcp --process cs2.exe --cidr 24
+```
+
+`add-game-route`/`watch-game` need the same Administrator elevation as
+`connect` (they reconnect the tunnel). To avoid opening an elevated
+terminal every single time, see
+[`scripts/scheduled-tasks/README.md`](scripts/scheduled-tasks/README.md) -
+a Scheduled Task created once with `/rl HIGHEST` can be triggered and
+stopped from a completely unprivileged session afterward, with no further
+UAC prompts, while still only ever running the exact fixed command it was
+registered with.
+
+**Not automated**: the relay's NAT rules for whatever IP gets detected -
+this project doesn't manage SSH access to relays in code. If a detected
+server falls outside the ranges you've already allowed on the relay
+(see "Routing real game traffic" below), the packet just goes nowhere
+useful - no error, just no benefit, until you add a matching NAT rule on
+the relay by hand.
 
 ## Current limitations
 
@@ -293,10 +393,13 @@ Options:
 2. ~~Let `monitor` treat "no tunnel" as a selectable candidate~~ done -
    the direct host is scored as a `direct` candidate; see "Automatic
    relay selection and failover" above.
-3. Add explicit consent/configuration for selective application routing,
-   using documented Windows networking mechanisms (this needs NAT/
-   forwarding on the relay for the game server's IP, not just the client's
-   tunnel `/32`, which the relay config does not yet allow).
+3. ~~Add explicit consent/configuration for selective application
+   routing~~ half done - `detect-remote`/`add-game-route`/`watch-game`
+   automate the Windows side (see "Automatic selective routing" above).
+   The relay side (NAT/forwarding for the detected IP) is still a manual
+   procedure (see "Routing real game traffic through the relay"); making
+   route-agent manage that too would mean it starts handling SSH access
+   to relays, which is new scope, not yet decided.
 4. Only then explore multipath in a controlled test environment, and a
    native (egui) GUI once Phase 3 is validated per
    `docs/BENCHMARK_PLAN.md`.

@@ -1,0 +1,4 @@
+@echo off
+REM TEMPLATE ONLY. Copy to C:\ProgramData\RouteAgent\connect-<name>.bat
+REM and fill in your real paths before registering a Scheduled Task for it.
+"C:\path\to\route-agent-prototype\target\release\route-agent.exe" connect --config "C:\ProgramData\RouteAgent\<relay-name>.conf" >> "%LOCALAPPDATA%\RouteAgent\connect.log" 2>&1

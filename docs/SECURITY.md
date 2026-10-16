@@ -35,6 +35,21 @@ rent, a tunnel scoped to `10.66.0.0/24`), not a generic worst case.
 | 5 | **Unbounded `--count` on `bench`** could ping flood a host you don't control for an arbitrarily long time. | Clamped to `1..=1000` via clap's `value_parser`. |
 | 6 | **No safety net against committing a real key.** `.gitignore` only stops a normal `git add`; `git add -f`, a key pasted into a doc, or a renamed file would slip through. | `.githooks/pre-commit` blocks committing any non-template `.conf` file and any line that looks like a real 44-char base64 `PrivateKey`/`PresharedKey` value, anywhere in the diff. Enable with `git config core.hooksPath .githooks` (already set in this clone). |
 
+## Avoiding repeated UAC prompts, safely
+
+`connect`/`disconnect`/`add-game-route`/`watch-game` need Administrator.
+To avoid an elevated terminal every single invocation,
+[`scripts/scheduled-tasks/README.md`](../scripts/scheduled-tasks/README.md)
+documents using a Windows Scheduled Task created once with `/rl HIGHEST`:
+after that one-time (elevated) registration, triggering/stopping it
+needs no further prompts. This is safe for the same reason item #2 above
+is a warning rather than a block: **the task's action is a fixed string
+set at creation time** (a specific `.bat` with hardcoded arguments, no
+indirection through a file an unprivileged process could write to).
+Don't build a "generic" version of this pattern that reads its command
+from an attacker-writable location - that turns the same mechanism into
+a privilege-escalation path. One task per fixed action, always.
+
 ## Known limitations - not (yet) fixable in code
 
 These depend on infrastructure this tool doesn't control (your relay,

@@ -4,6 +4,75 @@ Context for working on this project in future sessions. Don't duplicate
 `README.md` (setup/usage) or `docs/SECURITY.md` (threat model) here -
 this is for things that bit us and aren't obvious from reading the code.
 
+## Running elevated commands without a UAC prompt every time
+
+`connect`/`disconnect`/`add-game-route`/`watch-game` need Administrator.
+Being an admin account doesn't elevate every process by default (UAC's
+split-token model) - confirmed repeatedly this session via
+`([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)`,
+which was `False` in multiple "but I'm an admin!" sessions until a
+terminal was *explicitly* opened with "Run as Administrator". A real
+pitfall discovered live: `cmd.exe` vs `powershell.exe` makes zero
+difference here - both inherit the same (non-elevated) process token, so
+switching shells never fixes an "Acesso negado" from a missing
+elevation. Only a genuinely elevated session does.
+
+**Fix for repeated UAC friction**: a Scheduled Task created once with
+`/rl HIGHEST` (needs an elevated session to *create*) can be `schtasks
+/run`/`/end` from a completely unprivileged session afterward, with no
+further prompts - the Task Scheduler service (already SYSTEM) handles
+elevation internally. Documented properly, with the security reasoning
+(fixed action string per task, never a generic "run whatever's in this
+file" task - that would be a real privilege-escalation path) in
+`scripts/scheduled-tasks/README.md`. Verified live: created
+`RouteAgent-WatchGame-CS2` from an elevated window once, then
+`schtasks /run`/`/query`/`/end` all worked from this (non-elevated)
+session with zero prompts.
+
+Also worth remembering: after a successful `connect`, the config file's
+ACL gets hardened to SYSTEM+Administrators only
+(`wireguard::restrict_config_permissions`) - so editing `AllowedIPs` by
+hand *also* needs the same elevated session, not just `connect`/
+`disconnect` themselves. `disconnect` does **not** undo that ACL change.
+
+## ufw's `before.rules` has two "COMMIT" lines - don't sed-match on that alone
+
+Inserting a new NAT rule via `sed -i '/^COMMIT$/i <rule>' before.rules`
+corrupted the file: `before.rules` has a `*nat` table AND a `*filter`
+table, each ending in its own "COMMIT" line, and the pattern matches
+*both*, inserting a `-A POSTROUTING ... -j MASQUERADE` line into the
+filter table too - where `POSTROUTING` isn't a valid chain, breaking
+`ufw enable` with `iptables-restore: ... No chain/target/match by that
+name`. SSH stayed up throughout (ufw's own chains kept running even
+while the custom nat block failed to reload), so this wasn't a lockout,
+just a mess to clean up (delete the one bad line by exact line number,
+found with `grep -n`, not another global pattern match). If you add more
+NAT rules later, insert by exact line number or rebuild the whole `*nat`
+block, never a bare `/COMMIT/` pattern. Also: toggling `ufw disable` /
+`ufw --force enable` repeatedly accumulates duplicate entries in
+`iptables -t nat -L POSTROUTING` (harmless but messy) - flush with
+`iptables -t nat -F POSTROUTING` before reapplying from `before.rules` if
+you want a clean counter/rule list.
+
+## CS2 uses Valve's SDR (Steam Datagram Relay), not direct server IPs
+
+Learned from a real match's console log: CS2 no longer connects straight
+to a game server. It connects to a nearby Valve-operated relay PoP
+(`gru#1` = São Paulo, in this case `155.133.227.35:27015`,
+`155.133.0.0/16` more broadly - confirmed against a second, unrelated
+community IP list that independently used a `155.133.x.x` address for a
+*different* US city, so this range is Valve's own relay network, not
+specific to São Paulo) and Valve routes internally from there. The
+**older, pre-SDR matchmaking IP ranges** documented in community GitHub
+repos (`205.185.192.0/19`, `209.197.29.0/24`, `209.197.25.0/24`) are a
+different, mostly-legacy address space - a NAT rule scoped only to those
+had zero effect on a real SDR-era match, since the traffic never went
+there. Don't assume a found-online IP range is what the game actually
+uses now; verify with `detect-remote`/a live match's own diagnostics
+first. Valorant's actual server range is still unknown - Riot doesn't
+publish one and no community list for it was found reliable enough to
+use.
+
 ## Avast's Ransomware Shield blocks writes inside this Desktop folder
 
 `bench`/`monitor` failed with `error: Acesso negado. (os error 5)` right
