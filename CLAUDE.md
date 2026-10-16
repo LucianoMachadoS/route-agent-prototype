@@ -4,6 +4,29 @@ Context for working on this project in future sessions. Don't duplicate
 `README.md` (setup/usage) or `docs/SECURITY.md` (threat model) here -
 this is for things that bit us and aren't obvious from reading the code.
 
+## Real bug: `detect-remote` crashed on every round during an actual match
+
+`gamedetect::detect_remote_ips` used `Select-Object -ExpandProperty
+RemoteAddress`, which *throws* the moment any object in the pipeline
+lacks that property - and a UDP socket that never called `connect()`
+(extremely common; UDP is connectionless, and plenty of game traffic
+goes out via `sendto()` on an unconnected socket) has no `RemoteAddress`
+at all. Confirmed live: 100% reproducible, every single round of
+`watch-games` while CS2 was genuinely running in a real match (never
+once succeeded at detecting anything - the whole point of the feature
+never got validated end-to-end on the first real attempt). Fixed by
+switching to plain `$_.RemoteAddress` property access, which evaluates
+to `$null` instead of throwing when the property's absent - `$null`
+lines are already skipped by the Rust-side `.parse::<IpAddr>()` filter.
+**Lesson: this class of PowerShell object-shape assumption needs a live
+test against a real app with real traffic, not just a synthetic/offline
+one** - `cargo test` only covers `is_plausible_remote_peer` (pure), not
+the actual `Get-NetUDPEndpoint` pipeline shape, and testing against
+`steam.exe`'s idle UDP endpoints earlier in the same session didn't
+trigger this (they happened to all have resolvable addresses or none at
+all, apparently) - only an app in an active match reliably has the mix
+of connected/unconnected sockets that exposes it.
+
 ## A Scheduled Task's `.bat` content can be edited without re-registering
 
 Once a task is created with `/rl HIGHEST` (see below), its *action* is

@@ -19,10 +19,20 @@ use crate::error::{AgentError, Result};
 /// normal state outside of an active match.
 pub fn detect_remote_ips(process_name: &str) -> Result<Vec<IpAddr>> {
     let name = process_name.trim_end_matches(".exe").replace('\'', "''");
+    // `Select-Object -ExpandProperty RemoteAddress` looked right but was
+    // wrong: a UDP socket that's bound but never called connect() (very
+    // common - UDP is connectionless, and plenty of game traffic goes
+    // out via sendto() on an unconnected socket) has no RemoteAddress at
+    // all, and -ExpandProperty *throws* on the first object missing the
+    // property, aborting the whole pipeline with a non-zero exit -
+    // confirmed live, 100% reproducible, every single round while CS2
+    // was actually running in a real match. Plain `$_.RemoteAddress`
+    // property access just evaluates to $null for those instead of
+    // erroring, which Rust-side parsing already skips as unparseable.
     let script = format!(
         "Get-Process -Name '{name}' -ErrorAction Stop | ForEach-Object {{ \
          Get-NetUDPEndpoint -OwningProcess $_.Id -ErrorAction SilentlyContinue }} | \
-         Select-Object -ExpandProperty RemoteAddress"
+         ForEach-Object {{ $_.RemoteAddress }}"
     );
     let mut cmd = Command::new(crate::syspath::windows_powershell());
     cmd.args(["-NoProfile", "-Command", &script]);
