@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use route_agent::{bench, health, monitor, wireguard};
+use route_agent::{bench, gamedetect, gameroute, health, monitor, wireguard};
 
 #[derive(Parser)]
 #[command(
@@ -128,6 +128,68 @@ enum Commands {
         #[arg(long, env = "WIREGUARD_EXE")]
         wireguard: Option<PathBuf>,
     },
+    /// Detect the remote IP(s) a game process currently has active UDP
+    /// connections to. Only useful while a match is in progress. Does
+    /// not touch any config or tunnel.
+    DetectRemote {
+        /// Process name, with or without .exe (e.g. cs2 or
+        /// VALORANT-Win64-Shipping).
+        #[arg(long)]
+        process: String,
+    },
+    /// Detect the game's current remote IP(s) and add them to a
+    /// WireGuard config's AllowedIPs, then reconnect the tunnel so it
+    /// takes effect. Requires the same Administrator elevation as
+    /// connect/disconnect. Does not touch the relay's NAT rules - see
+    /// README/SECURITY.md for that half.
+    AddGameRoute {
+        /// Path to the WireGuard client .conf to update.
+        #[arg(long)]
+        config: PathBuf,
+        /// Tunnel name (the config file's stem) to disconnect/reconnect.
+        #[arg(long)]
+        name: String,
+        /// Process name, with or without .exe.
+        #[arg(long)]
+        process: String,
+        /// Expand each detected IP to a CIDR of this prefix length
+        /// instead of an exact /32 (e.g. 24 to cover the server's /24).
+        #[arg(long)]
+        cidr: Option<u8>,
+        /// Path to wireguard.exe. Falls back to WIREGUARD_EXE, then standard
+        /// install locations, then PATH.
+        #[arg(long, env = "WIREGUARD_EXE")]
+        wireguard: Option<PathBuf>,
+    },
+    /// Repeatedly detect new remote servers for a game process and add/
+    /// reconnect routes automatically, so you don't have to re-run
+    /// add-game-route by hand every time you're matched into a different
+    /// server. Requires Administrator (same as connect/disconnect).
+    WatchGame {
+        /// Path to the WireGuard client .conf to update.
+        #[arg(long)]
+        config: PathBuf,
+        /// Tunnel name (the config file's stem) to disconnect/reconnect.
+        #[arg(long)]
+        name: String,
+        /// Process name, with or without .exe.
+        #[arg(long)]
+        process: String,
+        /// Expand each detected IP to a CIDR of this prefix length
+        /// instead of an exact /32.
+        #[arg(long)]
+        cidr: Option<u8>,
+        /// Seconds between detection checks.
+        #[arg(long, default_value_t = 20)]
+        interval: u64,
+        /// Stop after this many rounds instead of running forever.
+        #[arg(long)]
+        rounds: Option<u32>,
+        /// Path to wireguard.exe. Falls back to WIREGUARD_EXE, then standard
+        /// install locations, then PATH.
+        #[arg(long, env = "WIREGUARD_EXE")]
+        wireguard: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -198,6 +260,63 @@ fn main() {
             &csv,
             wireguard,
         ),
+        Commands::DetectRemote { process } => gamedetect::detect_remote_ips(&process).map(|ips| {
+            if ips.is_empty() {
+                println!(
+                    "No active UDP remote addresses found for '{process}' - make sure a match is in progress."
+                );
+            } else {
+                for ip in &ips {
+                    println!("{ip}");
+                }
+            }
+        }),
+        Commands::AddGameRoute {
+            config,
+            name,
+            process,
+            cidr,
+            wireguard,
+        } => gameroute::add_game_route(&config, &process, cidr).and_then(|outcome| {
+            if outcome.detected.is_empty() {
+                println!(
+                    "No active UDP remote addresses found for '{process}' - make sure a match is in progress."
+                );
+                return Ok(());
+            }
+            let detected_str = outcome
+                .detected
+                .iter()
+                .map(|ip| ip.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("Detected: {detected_str}");
+            if outcome.added.is_empty() {
+                println!("Already covered by existing AllowedIPs - nothing to do.");
+                return Ok(());
+            }
+            println!("Added to AllowedIPs: {}", outcome.added.join(", "));
+            let tunnel = wireguard::WireGuardTunnel {
+                wireguard_exe: wireguard,
+            };
+            gameroute::reconnect(&tunnel, &name, &config).map(|new_name| {
+                println!("Reconnected tunnel '{new_name}' with the updated route.");
+            })
+        }),
+        Commands::WatchGame {
+            config,
+            name,
+            process,
+            cidr,
+            interval,
+            rounds,
+            wireguard,
+        } => {
+            let tunnel = wireguard::WireGuardTunnel {
+                wireguard_exe: wireguard,
+            };
+            gameroute::watch_game(&config, &name, &process, cidr, interval, rounds, &tunnel)
+        }
     };
 
     if let Err(err) = result {
