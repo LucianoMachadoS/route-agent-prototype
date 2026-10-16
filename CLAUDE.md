@@ -4,6 +4,23 @@ Context for working on this project in future sessions. Don't duplicate
 `README.md` (setup/usage) or `docs/SECURITY.md` (threat model) here -
 this is for things that bit us and aren't obvious from reading the code.
 
+## A Scheduled Task's `.bat` content can be edited without re-registering
+
+Once a task is created with `/rl HIGHEST` (see below), its *action* is
+just "run this file path" - the `.bat` file's own content isn't part of
+what required elevation to set, so it can be edited freely afterward
+without touching the task again. Used this live: `connect-saopaulo.bat`
+was rewritten to rewrite the `.conf`'s `AllowedIPs` (via a small
+`write-saopaulo-conf.ps1`) *before* calling `connect`, making the task
+idempotent/self-correcting on every future run instead of connecting
+with whatever the file happened to contain; separately,
+`watch-cs2.bat` (behind the already-registered
+`RouteAgent-WatchGame-CS2` task) was repointed from the single-game
+`watch-game` to the multi-game `watch-games --games games.toml` without
+creating a new task at all - the task's name is now a bit stale
+(it covers Valorant too), but renaming it would need one more elevated
+`schtasks /create`, so it was left as-is; only the file it runs changed.
+
 ## Running elevated commands without a UAC prompt every time
 
 `connect`/`disconnect`/`add-game-route`/`watch-game` need Administrator.
