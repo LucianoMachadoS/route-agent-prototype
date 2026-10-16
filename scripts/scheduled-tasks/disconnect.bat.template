@@ -1,4 +1,5 @@
 @echo off
 REM TEMPLATE ONLY. Copy to C:\ProgramData\RouteAgent\disconnect-<name>.bat
-REM and fill in your real paths before registering a Scheduled Task for it.
-"C:\path\to\route-agent-prototype\target\release\route-agent.exe" disconnect --name <relay-name> >> "%LOCALAPPDATA%\RouteAgent\connect.log" 2>&1
+REM and fill in the <placeholders>, then run scripts\install.ps1 (elevated) so
+REM the exe lives in Program Files and this .bat is admin-only - see README.
+"C:\Program Files\RouteAgent\route-agent.exe" disconnect --name <relay-name> >> "%LOCALAPPDATA%\RouteAgent\connect.log" 2>&1

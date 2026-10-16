@@ -381,7 +381,10 @@ the relay by hand.
 
 ```powershell
 cargo build --release
-.\target\release\route-agent-gui.exe      # no console window in release builds
+# elevated: installs both exes to Program Files, games.toml to ProgramData,
+# locks down ACLs, adds a "RouteAgent" Start menu shortcut. Re-run after
+# every rebuild - the Scheduled Tasks only ever run the installed copy.
+.\scripts\install.ps1
 ```
 
 Shows the tunnel's service state plus RTT/jitter/loss to `10.66.0.1`

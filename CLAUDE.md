@@ -24,6 +24,29 @@ leaving it "connected" to a dead endpoint). Before resuming:
    up with the known-good `AllowedIPs` (legacy CS2 ranges +
    `155.133.0.0/16` SDR).
 
+## Installed layout (since 2026-10-16) - the tasks no longer run the repo build
+
+The Scheduled Tasks run `C:\Program Files\RouteAgent\route-agent.exe`
+and read `C:\ProgramData\RouteAgent\games.toml`, both admin-only, put
+there by `scripts\install.ps1` (see docs/SECURITY.md for why: the old
+layout was a local privilege-escalation path). Consequences:
+
+- **`cargo build --release` alone changes nothing the tasks run.**
+  Re-run `install.ps1` elevated afterwards (from a non-elevated session:
+  `Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','"<repo>\scripts\install.ps1"' -Wait`
+  - the user clicks one UAC prompt; output goes to
+  `%LOCALAPPDATA%\RouteAgent\install.log`, since the elevated window closes).
+- Same for edits to the repo's `games.toml` - the installed copy wins.
+- Anything under `C:\ProgramData\RouteAgent\` now needs elevation to
+  edit (including the `.bat` files - the "edit the .bat without
+  re-registering" trick below still works, just from an elevated session).
+- `install.ps1` must stay ASCII-only, and can't use `$PSScriptRoot` in a
+  `param()` default - Windows PowerShell 5.1 leaves it empty there under
+  `-File` (hit live: the first elevated run died before even starting
+  its transcript).
+- Avast exception, if wanted, belongs on the *installed* exe path only -
+  never on the repo folder (that's the user-writable copy).
+
 ## Real bug: `detect-remote` crashed on every round during an actual match
 
 `gamedetect::detect_remote_ips` used `Select-Object -ExpandProperty

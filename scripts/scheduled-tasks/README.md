@@ -37,11 +37,33 @@ unprivileged process (including malware) could then get arbitrary code
 run as Administrator. See docs/SECURITY.md's note on `WIREGUARD_EXE` for
 the same pattern in a different place. One task per fixed action, always.
 
+**"Fixed action" only holds if everything the action touches is
+admin-only too.** The task definition says "run this `.bat`" - if a
+non-elevated process can *edit that `.bat`*, or the `route-agent.exe` it
+calls, or the `games.toml` it reads, it can still choose what runs as
+Administrator. This setup originally had exactly that hole (found
+2026-10-16): the exe and games.toml lived under the user's Desktop, and
+`C:\ProgramData\RouteAgent\*` was owned by - and full-control for - the
+normal user, with `Users` allowed to create new files in the folder (the
+ProgramData default). `scripts/install.ps1` fixes and verifies all of it:
+
+- exe + GUI in `C:\Program Files\RouteAgent\`, games.toml in
+  `C:\ProgramData\RouteAgent\`
+- owner Administrators; SYSTEM/Administrators full control, Users
+  read-only; `*.conf`/`*.ps1` (WireGuard private keys) SYSTEM/Admins only
+- fails loudly if any non-admin principal still has write access
+
+Re-run it (elevated) after every `cargo build --release` and after
+editing the repo's `games.toml` - the tasks use the installed copies,
+never the repo's. Editing anything under `C:\ProgramData\RouteAgent\` now
+needs an elevated session; that's the point.
+
 ## Setup (one-time, needs an elevated terminal)
 
 1. Copy a template below to `C:\ProgramData\RouteAgent\<name>.bat` and
-   fill in your actual paths/relay/process name.
-2. Register it (`/sc ONCE /st 00:00 /sd 01/01/2020` schedules it for a
+   fill in your actual relay/process name.
+2. Run `scripts\install.ps1` from that same elevated terminal.
+3. Register it (`/sc ONCE /st 00:00 /sd 01/01/2020` schedules it for a
    date in the past, purely so it never fires on its own - it only ever
    runs when you explicitly `/run` it):
 

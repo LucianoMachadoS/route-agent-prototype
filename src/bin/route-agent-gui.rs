@@ -35,8 +35,9 @@ const LOG_TAIL_BYTES: u64 = 8 * 1024;
 #[derive(Parser, Debug)]
 #[command(name = "route-agent-gui", about = "Janela de status do route-agent")]
 struct Args {
-    /// games.toml to list. Default: ./games.toml, then next to the exe
-    /// (and up to three parent folders, so target\release\ finds the repo's).
+    /// games.toml to list. Default: %ProgramData%\RouteAgent\games.toml
+    /// (the installed copy), then ./games.toml, then next to the exe and
+    /// up to three parent folders (so target\release\ finds the repo's).
     #[arg(long)]
     games: Option<PathBuf>,
 
@@ -335,7 +336,13 @@ fn gather(games_arg: Option<&Path>, tunnel_host: &str, fallback_name: &str) -> S
 }
 
 fn find_games_toml() -> Option<PathBuf> {
-    let mut candidates = vec![PathBuf::from("games.toml")];
+    // The installed copy (scripts/install.ps1) comes first: it's the one
+    // the elevated watch-games task actually reads.
+    let mut candidates: Vec<PathBuf> = std::env::var_os("ProgramData")
+        .map(|d| PathBuf::from(d).join(r"RouteAgent\games.toml"))
+        .into_iter()
+        .collect();
+    candidates.push(PathBuf::from("games.toml"));
     if let Ok(exe) = std::env::current_exe() {
         candidates.extend(
             exe.ancestors()

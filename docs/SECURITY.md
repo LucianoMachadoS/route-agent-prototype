@@ -50,6 +50,24 @@ Don't build a "generic" version of this pattern that reads its command
 from an attacker-writable location - that turns the same mechanism into
 a privilege-escalation path. One task per fixed action, always.
 
+**The files the task runs are part of that "fixed action" too.** A
+fixed task definition pointing at a `.bat` the normal user can edit is
+the same privilege-escalation path with one extra step. Found live
+2026-10-16 on this project's own setup: every file the elevated tasks
+ran or read was writable without elevation - `route-agent.exe` and
+`games.toml` under the user's Desktop, and `C:\ProgramData\RouteAgent\*`
+owned by the normal user (who therefore has full control, and could
+rewrite the ACL even after a fix), with `Users` allowed to create files
+in the folder. The same audit found `write-saopaulo-conf.ps1` and a
+second `.conf`, both holding the WireGuard private key, readable by every
+local user. [`scripts/install.ps1`](../scripts/install.ps1) installs to
+`Program Files`, sets Administrators as owner, Users read-only, keys
+SYSTEM/Admins-only (by well-known SID), and verifies no non-admin
+principal has write access. It's re-run after every rebuild. Verified
+from a non-elevated session afterwards: editing a `.bat`, creating a
+file in the folder, reading a `.conf` and replacing the installed exe
+all fail with access denied.
+
 ## Known limitations - not (yet) fixable in code
 
 These depend on infrastructure this tool doesn't control (your relay,
