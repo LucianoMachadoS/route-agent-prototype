@@ -9,7 +9,9 @@ this is for things that bit us and aren't obvious from reading the code.
 `brasil-instance` (the GCP relay, `southamerica-east1-a`) was stopped at
 the end of the previous session to avoid paying for idle time - status
 `TERMINATED`. The Windows tunnel was disconnected to match (no point
-leaving it "connected" to a dead endpoint). Before resuming:
+leaving it "connected" to a dead endpoint). Last stopped 2026-10-16.
+`gcloud` isn't on PATH in a fresh session - it's at
+`%LOCALAPPDATA%\Google\google-cloud-sdk\bin\gcloud.cmd`. Before resuming:
 
 1. `gcloud compute instances start brasil-instance --zone southamerica-east1-a`
 2. **Check the external IP didn't change** - it's ephemeral, not
