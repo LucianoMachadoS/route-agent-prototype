@@ -312,7 +312,22 @@ route-agent detect-remote   --process <NAME>
 route-agent add-game-route  --config <PATH> --name <TUNNEL_NAME> --process <NAME> [--cidr <PREFIX>] [--wireguard <PATH>]
 route-agent watch-game      --config <PATH> --name <TUNNEL_NAME> --process <NAME> [--cidr <PREFIX>] [--interval <SECS>] [--rounds <N>] [--wireguard <PATH>]
 route-agent watch-games     --games <PATH> [--interval <SECS>] [--rounds <N>] [--wireguard <PATH>]
+route-agent diagnose        [--gateway-pings <N>] [--json]
 ```
+
+`monitor`, `watch-game` and `watch-games` also take `--log <FILE>
+[--log-max-kb <KB>]`: timestamped lines go to that file instead of
+stdout, rotated to `<FILE>.1`/`<FILE>.2` once it passes the size (default
+1024 KB). Every ~5 minutes they also log their own CPU/RAM
+(`self: cpu 0.01% ram 5.2 MB ...`). `scripts\install.ps1` migrates old
+`.bat` files that used `>> file 2>&1` to this automatically.
+
+`diagnose` is read-only and needs no admin: network adapter (cable vs
+Wi-Fi, link speed, driver - including flagging Microsoft's generic inbox
+driver on third-party NICs), latency/jitter/loss to your own router,
+CPU/RAM/disk, GPU/VRAM, temperature when Windows exposes it, Game Bar
+background capture, power plan and startup apps - each with an OK / INFO
+/ AVISO verdict. `--json` prints the raw data instead.
 
 Options:
 - `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`/`add-game-route`/`watch-game`/`watch-games`.

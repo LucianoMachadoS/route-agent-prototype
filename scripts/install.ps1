@@ -144,6 +144,14 @@ try {
         # Bare "powershell" is resolved via PATH/cwd - same CWE-427 issue
         # syspath.rs fixes on the Rust side.
         $new = [regex]::Replace($new, '(?im)^powershell(\.exe)?(?=\s)', "`"$powershellExe`"")
+        # Long-running loops used to log via `>> "<file>" 2>&1` - no
+        # timestamps, no size limit. Switch them to the exe's own rotating
+        # --log; stderr (only used if the log itself can't be written, or on
+        # a crash) goes to <file>.stderr. Lines that already use --log are
+        # left alone, so this is idempotent.
+        $new = [regex]::Replace($new,
+            '(?im)^(?<cmd>.*route-agent\.exe"?\s+(?:watch-games?|monitor)\s(?:(?!--log).)*?)\s*>>\s*"(?<log>[^"]+)"\s*2>&1[ \t]*$',
+            '${cmd} --log "${log}" >nul 2>> "${log}.stderr"')
         if ($new -ne $text) {
             [IO.File]::WriteAllText($bat.FullName, $new, [Text.Encoding]::ASCII)
             Write-Host "Repointed $($bat.Name)"

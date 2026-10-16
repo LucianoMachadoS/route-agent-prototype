@@ -3,9 +3,16 @@
 //! log — operationalizing the manual worksheet in `docs/experiments.md`.
 
 use std::path::Path;
-use std::process::Command;
 
 use crate::error::{AgentError, Result};
+
+/// Per-probe timeout passed to `ping.exe -w`. Windows' default is 4000 ms;
+/// measured on this machine, 5 probes to a dead target (203.0.113.1) took
+/// 23.8 s by default vs 9.0 s with `-w 1000` (live targets: 4.1 s either
+/// way), so one dead relay no longer makes a `monitor` round outlast its
+/// own interval. Anything slower than 1 s is unplayable anyway, so it's
+/// counted as loss rather than waited for.
+pub const PROBE_TIMEOUT_MS: u32 = 1000;
 use crate::telemetry::{append_line, csv_field, fmt_opt};
 use crate::traits::{Measurement, Probe};
 
@@ -126,7 +133,11 @@ fn looks_like_a_real_attempt(stdout: &str) -> bool {
 /// smoke test, not a unit test - see CLAUDE.md.)
 pub fn ping(host: &str, count: u32) -> Result<PingStats> {
     let mut cmd = crate::syspath::hidden_command(crate::syspath::system32("ping.exe"));
-    cmd.arg("-n").arg(count.to_string()).arg(host);
+    cmd.arg("-n")
+        .arg(count.to_string())
+        .arg("-w")
+        .arg(PROBE_TIMEOUT_MS.to_string())
+        .arg(host);
     let output = cmd.output().map_err(|source| AgentError::Spawn {
         command: format!("ping.exe -n {count} {host}"),
         source,
@@ -151,21 +162,11 @@ pub fn ping(host: &str, count: u32) -> Result<PingStats> {
     })
 }
 
-/// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`, via PowerShell with an
-/// explicit format string so it doesn't depend on system locale and we
-/// don't need to add a date-handling crate just for this.
+/// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`. This used to spawn a whole
+/// `powershell.exe` per call just to format the clock; now pure Rust
+/// (`agentlog::utc_now`). Kept as a `Result` so call sites didn't change.
 pub(crate) fn utc_timestamp() -> Result<String> {
-    let mut cmd = Command::new(crate::syspath::windows_powershell());
-    cmd.args([
-        "-NoProfile",
-        "-Command",
-        "[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')",
-    ]);
-    let output = cmd.output().map_err(|source| AgentError::Spawn {
-        command: "powershell.exe (timestamp)".to_string(),
-        source,
-    })?;
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(crate::agentlog::utc_now())
 }
 
 pub struct RunRow {

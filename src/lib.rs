@@ -6,6 +6,7 @@
 //! integration test can only reach through a library target. See
 //! CLAUDE.md for the detail.
 
+pub mod agentlog;
 pub mod bench;
 pub mod console;
 pub mod error;
@@ -16,7 +17,9 @@ pub mod health;
 pub mod monitor;
 pub mod relays;
 pub mod routing;
+pub mod selfstats;
 pub mod syspath;
 pub mod telemetry;
 pub mod traits;
+pub mod windiag;
 pub mod wireguard;

@@ -5,4 +5,4 @@ REM Scheduled Task for it. --cidr 24 expands each detected server IP to
 REM its containing /24 instead of an exact /32 - drop it for precision,
 REM or raise/lower it depending on how much you trust the detected
 REM server to stay within a nearby IP range across matches.
-"C:\Program Files\RouteAgent\route-agent.exe" watch-game --config "C:\ProgramData\RouteAgent\<relay-name>.conf" --name <relay-name> --process <game-process-name> --cidr 24 --interval 20 >> "%LOCALAPPDATA%\RouteAgent\watch-game.log" 2>&1
+"C:\Program Files\RouteAgent\route-agent.exe" watch-game --config "C:\ProgramData\RouteAgent\<relay-name>.conf" --name <relay-name> --process <game-process-name> --cidr 24 --interval 20 --log "%LOCALAPPDATA%\RouteAgent\watch-game.log" >nul 2>> "%LOCALAPPDATA%\RouteAgent\watch-game.log.stderr"

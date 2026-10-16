@@ -19,7 +19,31 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use route_agent::{bench, gamedetect, gameroute, games, health, monitor, wireguard};
+use route_agent::{
+    agentlog, bench, gamedetect, gameroute, games, health, monitor, windiag, wireguard,
+};
+
+/// Logging options shared by the long-running loops.
+#[derive(clap::Args)]
+struct LogArgs {
+    /// Write timestamped log lines to this file instead of stdout/stderr,
+    /// rotating it once it passes --log-max-kb (two old copies are kept,
+    /// as <file>.1 and <file>.2).
+    #[arg(long)]
+    log: Option<PathBuf>,
+    /// Size at which the --log file is rotated.
+    #[arg(long, default_value_t = 1024, value_parser = clap::value_parser!(u64).range(1..=1_048_576))]
+    log_max_kb: u64,
+}
+
+impl LogArgs {
+    fn init(&self) -> route_agent::error::Result<()> {
+        if let Some(path) = &self.log {
+            agentlog::init_file(path, self.log_max_kb * 1024, 2)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -127,6 +151,8 @@ enum Commands {
         /// install locations, then PATH.
         #[arg(long, env = "WIREGUARD_EXE")]
         wireguard: Option<PathBuf>,
+        #[command(flatten)]
+        log: LogArgs,
     },
     /// Detect the remote IP(s) a game process currently has active UDP
     /// connections to. Only useful while a match is in progress. Does
@@ -189,6 +215,8 @@ enum Commands {
         /// install locations, then PATH.
         #[arg(long, env = "WIREGUARD_EXE")]
         wireguard: Option<PathBuf>,
+        #[command(flatten)]
+        log: LogArgs,
     },
     /// Like watch-game, but for every game registered in a games.toml at
     /// once (see games.toml.template) - add a future game/app by adding
@@ -208,6 +236,22 @@ enum Commands {
         /// install locations, then PATH.
         #[arg(long, env = "WIREGUARD_EXE")]
         wireguard: Option<PathBuf>,
+        #[command(flatten)]
+        log: LogArgs,
+    },
+    /// Read-only health check of this Windows PC for gaming: network
+    /// adapter/driver/link, latency to your own router, CPU, RAM, GPU/VRAM,
+    /// temperature (when exposed), Game Bar capture, power plan, startup
+    /// apps and disk - with recommendations. No admin needed; changes
+    /// nothing.
+    Diagnose {
+        /// Pings to the default gateway (your router) to measure the local
+        /// network leg. 0 skips that test.
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(0..=100))]
+        gateway_pings: u32,
+        /// Print the raw collected data as JSON instead of the report.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -269,16 +313,19 @@ fn main() {
             dry_run,
             csv,
             wireguard,
-        } => monitor::run(
-            &relays,
-            &direct_host,
-            count,
-            interval,
-            rounds,
-            dry_run,
-            &csv,
-            wireguard,
-        ),
+            log,
+        } => log.init().and_then(|_| {
+            monitor::run(
+                &relays,
+                &direct_host,
+                count,
+                interval,
+                rounds,
+                dry_run,
+                &csv,
+                wireguard,
+            )
+        }),
         Commands::DetectRemote { process } => gamedetect::detect_remote_ips(&process).map(|ips| {
             if ips.is_empty() {
                 println!(
@@ -330,27 +377,53 @@ fn main() {
             interval,
             rounds,
             wireguard,
-        } => {
+            log,
+        } => log.init().and_then(|_| {
             let tunnel = wireguard::WireGuardTunnel {
                 wireguard_exe: wireguard,
             };
             gameroute::watch_game(&config, &name, &process, cidr, interval, rounds, &tunnel)
-        }
+        }),
         Commands::WatchGames {
             games: games_path,
             interval,
             rounds,
             wireguard,
-        } => games::load(&games_path).and_then(|games_file| {
-            let tunnel = wireguard::WireGuardTunnel {
-                wireguard_exe: wireguard,
-            };
-            gameroute::watch_games(&games_file.games, interval, rounds, &tunnel)
+            log,
+        } => log
+            .init()
+            .and_then(|_| games::load(&games_path))
+            .and_then(|games_file| {
+                let tunnel = wireguard::WireGuardTunnel {
+                    wireguard_exe: wireguard,
+                };
+                gameroute::watch_games(&games_file.games, interval, rounds, &tunnel)
+            }),
+        Commands::Diagnose {
+            gateway_pings,
+            json,
+        } => {
+            // stderr, so `--json` output stays clean for piping.
+            eprintln!(
+                "Coletando dados do Windows{} (~{} s)...",
+                if gateway_pings > 0 { " e medindo o roteador" } else { "" },
+                6 + gateway_pings
+            );
+            windiag::collect(gateway_pings)
+        }
+        .map(|snap| {
+            if json {
+                println!("{}", windiag::to_json(&snap));
+            } else {
+                windiag::print_report(&snap, &windiag::findings(&snap, agentlog::today_days()));
+            }
         }),
     };
 
     if let Err(err) = result {
-        eprintln!("error: {err}");
+        // Through agentlog so a loop started with --log records why it
+        // stopped in its own log file, not just on a console nobody sees.
+        agentlog::warn(&format!("error: {err}"));
         std::process::exit(1);
     }
 }

@@ -5,4 +5,4 @@ REM where this .bat expects them, admin-only. See README.
 REM Prefer this over watch-game.bat.template once you have more than one
 REM game/app registered in games.toml - adding a future one is then just
 REM a new [[game]] entry there, not a new .bat/task.
-"C:\Program Files\RouteAgent\route-agent.exe" watch-games --games "C:\ProgramData\RouteAgent\games.toml" --interval 20 >> "%LOCALAPPDATA%\RouteAgent\watch-games.log" 2>&1
+"C:\Program Files\RouteAgent\route-agent.exe" watch-games --games "C:\ProgramData\RouteAgent\games.toml" --interval 20 --log "%LOCALAPPDATA%\RouteAgent\watch-games.log" >nul 2>> "%LOCALAPPDATA%\RouteAgent\watch-games.log.stderr"

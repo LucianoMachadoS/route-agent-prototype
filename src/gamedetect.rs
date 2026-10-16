@@ -13,6 +13,10 @@ use crate::error::{AgentError, Result};
 /// Exit code the detection script uses for "no such process right now".
 const NOT_RUNNING_EXIT: i32 = 3;
 
+/// A normal run takes ~1 s; this only exists so a wedged PowerShell/CIM
+/// call can't stall `watch-games` forever.
+const DETECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Queries Windows for the remote IPv4/IPv6 addresses a running process
 /// currently has active UDP endpoints toward, filtering out addresses
 /// that are never a real remote peer (unspecified, loopback, link-local,
@@ -46,9 +50,18 @@ pub fn detect_remote_ips(process_name: &str) -> Result<Vec<IpAddr>> {
     );
     let mut cmd = crate::syspath::hidden_command(crate::syspath::windows_powershell());
     cmd.args(["-NoProfile", "-Command", &script]);
-    let output = cmd.output().map_err(|source| AgentError::Spawn {
-        command: "powershell.exe (detect-remote)".to_string(),
-        source,
+    let output = crate::syspath::output_with_timeout(cmd, DETECT_TIMEOUT).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::TimedOut {
+            AgentError::Timeout {
+                command: "powershell.exe (detect-remote)".to_string(),
+                secs: DETECT_TIMEOUT.as_secs(),
+            }
+        } else {
+            AgentError::Spawn {
+                command: "powershell.exe (detect-remote)".to_string(),
+                source,
+            }
+        }
     })?;
 
     if output.status.code() == Some(NOT_RUNNING_EXIT) {

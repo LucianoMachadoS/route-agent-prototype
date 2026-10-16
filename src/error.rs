@@ -31,6 +31,9 @@ pub enum AgentError {
     #[error("invalid relay config '{path}': {reason}")]
     RelayConfigInvalid { path: PathBuf, reason: String },
 
+    #[error("'{command}' did not finish within {secs}s and was stopped")]
+    Timeout { command: String, secs: u64 },
+
     #[error("process '{0}' is not running")]
     ProcessNotRunning(String),
 

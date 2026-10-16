@@ -289,7 +289,7 @@ it with `Write`, even when asked to work fast.
 ```powershell
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"   # if cargo isn't found
 cargo fmt
-cargo test            # 67 tests as of 2026-10-16 (59 lib + 6 + 2 integration), all pure/offline
+cargo test            # 80 tests as of 2026-10-16 (72 lib + 6 + 2 integration); a few Windows-only ones spawn cmd/ping/kernel32 locally, none touch the network
 cargo build --release
 ```
 
@@ -402,3 +402,27 @@ exception per game into watch-game.log. Now the script exits with code 3
 when no process matches, which maps to `AgentError::ProcessNotRunning`
 and a one-line `"<game>: not running"`. Verified live against `cs2.exe`
 (not running) and `steam.exe` (running) in the same session.
+
+## Agent efficiency pass + `diagnose` (2026-10-16) - measured, not assumed
+
+- `ping.exe -w 1000` (`bench::PROBE_TIMEOUT_MS`): 5 probes to a dead
+  target took **23.8 s** by default vs **9.0 s** with it (live targets
+  4.1 s either way). Windows still spaces probes ~1 s apart, so a dead
+  target costs ~1.8 s/probe, not 1 s. Smoke-tested per the rule above:
+  `monitor` with 1.1.1.1 + 203.0.113.1 in one run - the dead relay still
+  shows up scored (penalty ~1000), it doesn't vanish.
+- `bench::utc_timestamp` no longer spawns PowerShell (pure Rust in
+  `agentlog`, Hinnant's civil-date algorithm). Self-report shows the
+  long-running `watch-games` at ~5 MB working set / <1 MB private.
+- `syspath::output_with_timeout` drains stdout/stderr on threads - a
+  child blocked on a full pipe would otherwise never exit and get "timed
+  out" while healthy. Used for detect-remote (20 s) and diagnose (60 s).
+- `windiag.ps1` is embedded with `include_str!` and passed via
+  `-Command` (not `-EncodedCommand` - that's the classic malware pattern
+  AV heuristics watch for). A unit test enforces it stays ASCII and has
+  no double quotes, which would need escaping on the command line.
+- First real `diagnose` finding on this machine: the Realtek NIC runs
+  Microsoft's generic inbox driver (v1.0.0.14, 2017). Temperature is not
+  readable without admin here (`MSAcpi_ThermalZoneTemperature` empty).
+- First `diagnose` run took 29 s with CS2 open (CPU 57%); steady state
+  is ~5.5 s collection + ~1 s per gateway ping.

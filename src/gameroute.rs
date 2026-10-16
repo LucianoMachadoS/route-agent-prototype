@@ -62,29 +62,33 @@ pub fn watch_game(
     rounds: Option<u32>,
     tunnel: &dyn TunnelManager,
 ) -> Result<()> {
-    println!("watch-game: watching '{process}' for new remote servers every {interval_secs}s");
+    crate::log_info!(
+        "watch-game: watching '{process}' for new remote servers every {interval_secs}s"
+    );
     let mut round_no: u32 = 0;
+    let mut sampler = crate::selfstats::SelfSampler::new();
     loop {
         round_no += 1;
+        crate::selfstats::report_periodically(&mut sampler, round_no, interval_secs);
         match add_game_route(config_path, process, cidr) {
             Ok(outcome) if outcome.detected.is_empty() => {
-                println!("[round {round_no}] no active match detected for '{process}'");
+                crate::log_info!("[round {round_no}] no active match detected for '{process}'");
             }
             Ok(outcome) if outcome.added.is_empty() => {
                 let joined = join_ips(&outcome.detected);
-                println!("[round {round_no}] server already covered ({joined})");
+                crate::log_info!("[round {round_no}] server already covered ({joined})");
             }
             Ok(outcome) => {
-                println!(
+                crate::log_info!(
                     "[round {round_no}] new route(s): {} - reconnecting",
                     outcome.added.join(", ")
                 );
                 match reconnect(tunnel, tunnel_name, config_path) {
-                    Ok(name) => println!("[round {round_no}] tunnel '{name}' reconnected"),
-                    Err(e) => eprintln!("[round {round_no}] warning: reconnect failed: {e}"),
+                    Ok(name) => crate::log_info!("[round {round_no}] tunnel '{name}' reconnected"),
+                    Err(e) => crate::log_warn!("[round {round_no}] warning: reconnect failed: {e}"),
                 }
             }
-            Err(e) => eprintln!("[round {round_no}] warning: detection failed: {e}"),
+            Err(e) => crate::log_warn!("[round {round_no}] warning: detection failed: {e}"),
         }
 
         if rounds.map(|limit| round_no >= limit).unwrap_or(false) {
@@ -106,7 +110,7 @@ pub fn watch_games(
     rounds: Option<u32>,
     tunnel: &dyn TunnelManager,
 ) -> Result<()> {
-    println!(
+    crate::log_info!(
         "watch-games: watching {} game(s) every {interval_secs}s: {}",
         games.len(),
         games
@@ -116,8 +120,10 @@ pub fn watch_games(
             .join(", ")
     );
     let mut round_no: u32 = 0;
+    let mut sampler = crate::selfstats::SelfSampler::new();
     loop {
         round_no += 1;
+        crate::selfstats::report_periodically(&mut sampler, round_no, interval_secs);
         for game in games {
             run_one_game_round(round_no, game, tunnel);
         }
@@ -132,36 +138,36 @@ pub fn watch_games(
 fn run_one_game_round(round_no: u32, game: &GameProfile, tunnel: &dyn TunnelManager) {
     match add_game_route(&game.config, &game.process, game.cidr) {
         Ok(outcome) if outcome.detected.is_empty() => {
-            println!("[round {round_no}] {}: no active match", game.name);
+            crate::log_info!("[round {round_no}] {}: no active match", game.name);
         }
         Ok(outcome) if outcome.added.is_empty() => {
-            println!(
+            crate::log_info!(
                 "[round {round_no}] {}: already covered ({})",
                 game.name,
                 join_ips(&outcome.detected)
             );
         }
         Ok(outcome) => {
-            println!(
+            crate::log_info!(
                 "[round {round_no}] {}: new route(s) {} - reconnecting",
                 game.name,
                 outcome.added.join(", ")
             );
             match reconnect(tunnel, &game.tunnel_name, &game.config) {
-                Ok(name) => println!(
+                Ok(name) => crate::log_info!(
                     "[round {round_no}] {}: tunnel '{name}' reconnected",
                     game.name
                 ),
-                Err(e) => eprintln!(
+                Err(e) => crate::log_warn!(
                     "[round {round_no}] {}: warning: reconnect failed: {e}",
                     game.name
                 ),
             }
         }
         Err(AgentError::ProcessNotRunning(_)) => {
-            println!("[round {round_no}] {}: not running", game.name);
+            crate::log_info!("[round {round_no}] {}: not running", game.name);
         }
-        Err(e) => eprintln!(
+        Err(e) => crate::log_warn!(
             "[round {round_no}] {}: warning: detection failed: {e}",
             game.name
         ),

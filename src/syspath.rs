@@ -54,6 +54,59 @@ pub fn hidden_command(path: impl AsRef<std::ffi::OsStr>) -> std::process::Comman
     cmd
 }
 
+/// `cmd.output()`, but kills the child and returns `ErrorKind::TimedOut`
+/// if it hasn't exited within `timeout`. `Command::output` waits forever,
+/// and a wedged `powershell.exe` (WMI/CIM providers can hang) would
+/// otherwise stall `watch-games` indefinitely, silently.
+pub fn output_with_timeout(
+    mut cmd: std::process::Command,
+    timeout: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    // Drain both pipes on threads: a child blocked on a full pipe buffer
+    // would never exit, and we'd "time out" a perfectly healthy process.
+    let mut out = child.stdout.take().expect("stdout is piped");
+    let mut err = child.stderr.take().expect("stderr is piped");
+    let out_t = std::thread::spawn(move || {
+        let mut v = Vec::new();
+        let _ = out.read_to_end(&mut v);
+        v
+    });
+    let err_t = std::thread::spawn(move || {
+        let mut v = Vec::new();
+        let _ = err.read_to_end(&mut v);
+        v
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("did not finish within {}s", timeout.as_secs()),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: out_t.join().unwrap_or_default(),
+        stderr: err_t.join().unwrap_or_default(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,6 +116,26 @@ mod tests {
         let p = system32("ping.exe");
         let s = p.to_string_lossy().to_lowercase();
         assert!(s.ends_with(r"\system32\ping.exe"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn output_with_timeout_returns_output_or_kills() {
+        use std::time::{Duration, Instant};
+
+        let mut quick = std::process::Command::new(system32("cmd.exe"));
+        quick.args(["/c", "echo hi"]);
+        let out = output_with_timeout(quick, Duration::from_secs(10)).unwrap();
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi");
+
+        // ping -n 30 takes ~29 s; must be cut off after ~1 s.
+        let mut slow = hidden_command(system32("ping.exe"));
+        slow.args(["-n", "30", "127.0.0.1"]);
+        let started = Instant::now();
+        let err = output_with_timeout(slow, Duration::from_secs(1)).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[test]

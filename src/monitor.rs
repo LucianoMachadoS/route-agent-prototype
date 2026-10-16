@@ -40,7 +40,7 @@ pub fn run(
     let mut selector = Selector::new(SelectorConfig::default());
     let mut active_tunnel_name: Option<String> = None;
 
-    println!(
+    crate::log_info!(
         "monitor: {} relay candidate(s) vs. direct host {direct_host}{}",
         relays_file.relays.len(),
         if dry_run {
@@ -51,24 +51,27 @@ pub fn run(
     );
 
     let mut round_no: u32 = 0;
+    let mut sampler = crate::selfstats::SelfSampler::new();
     loop {
         round_no += 1;
+        crate::selfstats::report_periodically(&mut sampler, round_no, interval_secs);
         let mut round = HashMap::new();
         for relay in &relays_file.relays {
             match probe.measure(&relay.tunnel_host, probe_count) {
                 Ok(m) => {
                     round.insert(relay.name.clone(), m);
                 }
-                Err(e) => eprintln!(
+                Err(e) => crate::log_warn!(
                     "warning: probing relay '{}' ({}) failed: {e}",
-                    relay.name, relay.tunnel_host
+                    relay.name,
+                    relay.tunnel_host
                 ),
             }
         }
 
         match probe.measure(direct_host, probe_count) {
             Ok(direct) => {
-                println!(
+                crate::log_info!(
                     "[round {round_no}] direct({direct_host}): loss={:.1}% jitter={}",
                     direct.loss_pct,
                     direct
@@ -82,13 +85,15 @@ pub fn run(
                 // because it's the best of the configured relays.
                 round.insert(relays::DIRECT_CANDIDATE.to_string(), direct);
             }
-            Err(e) => eprintln!("warning: probing direct host '{direct_host}' failed: {e}"),
+            Err(e) => crate::log_warn!("warning: probing direct host '{direct_host}' failed: {e}"),
         }
 
         let decision = selector.evaluate(&round, &relays_file.scoring);
-        println!(
+        crate::log_info!(
             "[round {round_no}] chosen={} switched={} reason={}",
-            decision.chosen, !decision.keep_current, decision.reason
+            decision.chosen,
+            !decision.keep_current,
+            decision.reason
         );
 
         if !dry_run {
