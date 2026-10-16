@@ -67,10 +67,15 @@ Scheduled Task has no console. Check the log, not the task's own output.
 - [`connect.bat.template`](connect.bat.template) - bring up a specific tunnel
 - [`disconnect.bat.template`](disconnect.bat.template) - tear it down
 - [`watch-game.bat.template`](watch-game.bat.template) - continuously
-  detect a game's current server and keep `AllowedIPs` (and the tunnel)
-  up to date while you play, so you don't re-run `add-game-route` by hand
-  every match (see README's "Automatic selective routing" section)
+  detect **one** game's current server and keep `AllowedIPs` (and the
+  tunnel) up to date while you play
+- [`watch-games.bat.template`](watch-games.bat.template) - same, but for
+  every game listed in `games.toml` at once (see
+  `../../games.toml.template`). **Prefer this one** once you have more
+  than one game/app to watch: adding a future game is then just a new
+  `[[game]]` entry in `games.toml`, not a new `.bat` + a new task.
 
-Make one `.bat` + one Scheduled Task per relay/game combination you
-actually use - don't try to parameterize a single task at runtime (see
-the security note above for why).
+Make one `.bat` + one Scheduled Task per relay you actually use (or one
+`watch-games` task covering your whole `games.toml`) - don't try to
+parameterize a single task at runtime (see the security note above for
+why).
