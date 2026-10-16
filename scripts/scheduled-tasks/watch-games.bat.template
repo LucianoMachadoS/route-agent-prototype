@@ -1,0 +1,7 @@
+@echo off
+REM TEMPLATE ONLY. Copy to C:\ProgramData\RouteAgent\watch-games.bat and
+REM fill in your real path before registering a Scheduled Task for it.
+REM Prefer this over watch-game.bat.template once you have more than one
+REM game/app registered in games.toml - adding a future one is then just
+REM a new [[game]] entry there, not a new .bat/task.
+"C:\path\to\route-agent-prototype\target\release\route-agent.exe" watch-games --games "C:\path\to\route-agent-prototype\games.toml" --interval 20 >> "%LOCALAPPDATA%\RouteAgent\watch-games.log" 2>&1

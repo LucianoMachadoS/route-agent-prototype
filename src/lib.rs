@@ -10,6 +10,7 @@ pub mod bench;
 pub mod error;
 pub mod gamedetect;
 pub mod gameroute;
+pub mod games;
 pub mod health;
 pub mod monitor;
 pub mod relays;

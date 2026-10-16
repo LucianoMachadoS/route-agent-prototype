@@ -1,0 +1,26 @@
+# TEMPLATE ONLY. Copy to games.toml and list the games/apps you want
+# route-agent to watch. Adding a future game is just adding a [[game]]
+# block here - no code changes, no new Scheduled Task.
+#
+# `watch-games --games games.toml` watches every entry below in one
+# loop: for each game, it detects the process's current remote server
+# (if any), adds it to that game's `config`'s AllowedIPs if it's new,
+# and reconnects that `tunnel_name` so the change takes effect.
+#
+# Reminder: this only automates the Windows side. The relay still needs
+# a matching NAT rule for whatever IP range gets detected - see README's
+# "Routing real game traffic through the relay (NAT)".
+
+[[game]]
+name = "cs2"
+process = "cs2.exe"
+config = "C:/ProgramData/RouteAgent/saopaulo-gcp.conf"
+tunnel_name = "saopaulo-gcp"
+cidr = 24
+
+[[game]]
+name = "valorant"
+process = "VALORANT-Win64-Shipping.exe"
+config = "C:/ProgramData/RouteAgent/saopaulo-gcp.conf"
+tunnel_name = "saopaulo-gcp"
+cidr = 24

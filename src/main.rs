@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use route_agent::{bench, gamedetect, gameroute, health, monitor, wireguard};
+use route_agent::{bench, gamedetect, gameroute, games, health, monitor, wireguard};
 
 #[derive(Parser)]
 #[command(
@@ -190,6 +190,25 @@ enum Commands {
         #[arg(long, env = "WIREGUARD_EXE")]
         wireguard: Option<PathBuf>,
     },
+    /// Like watch-game, but for every game registered in a games.toml at
+    /// once (see games.toml.template) - add a future game/app by adding
+    /// a [[game]] entry there, not by writing new code or a new
+    /// Scheduled Task. Requires Administrator.
+    WatchGames {
+        /// Path to a games.toml (see games.toml.template).
+        #[arg(long)]
+        games: PathBuf,
+        /// Seconds between detection checks.
+        #[arg(long, default_value_t = 20)]
+        interval: u64,
+        /// Stop after this many rounds instead of running forever.
+        #[arg(long)]
+        rounds: Option<u32>,
+        /// Path to wireguard.exe. Falls back to WIREGUARD_EXE, then standard
+        /// install locations, then PATH.
+        #[arg(long, env = "WIREGUARD_EXE")]
+        wireguard: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -317,6 +336,17 @@ fn main() {
             };
             gameroute::watch_game(&config, &name, &process, cidr, interval, rounds, &tunnel)
         }
+        Commands::WatchGames {
+            games: games_path,
+            interval,
+            rounds,
+            wireguard,
+        } => games::load(&games_path).and_then(|games_file| {
+            let tunnel = wireguard::WireGuardTunnel {
+                wireguard_exe: wireguard,
+            };
+            gameroute::watch_games(&games_file.games, interval, rounds, &tunnel)
+        }),
     };
 
     if let Err(err) = result {

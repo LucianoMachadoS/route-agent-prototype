@@ -311,10 +311,11 @@ route-agent monitor    --relays <PATH> --direct-host <HOST> [--count <N>] [--int
 route-agent detect-remote   --process <NAME>
 route-agent add-game-route  --config <PATH> --name <TUNNEL_NAME> --process <NAME> [--cidr <PREFIX>] [--wireguard <PATH>]
 route-agent watch-game      --config <PATH> --name <TUNNEL_NAME> --process <NAME> [--cidr <PREFIX>] [--interval <SECS>] [--rounds <N>] [--wireguard <PATH>]
+route-agent watch-games     --games <PATH> [--interval <SECS>] [--rounds <N>] [--wireguard <PATH>]
 ```
 
 Options:
-- `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`/`add-game-route`/`watch-game`.
+- `--wireguard <PATH>` selects `wireguard.exe` for `connect`/`disconnect`/`monitor`/`add-game-route`/`watch-game`/`watch-games`.
 - `health-check --count` defaults to 5 probes.
 - Alternatively set the `WIREGUARD_EXE` environment variable. The flag
   wins if both are set; if neither is set, the standard install locations
@@ -347,6 +348,18 @@ route-agent now does this itself:
 # it by hand every time you're matched into a different server:
 .\target\release\route-agent.exe watch-game --config saopaulo-gcp.conf --name saopaulo-gcp --process cs2.exe --cidr 24
 ```
+
+**For more than one game**, copy [`games.toml.template`](games.toml.template)
+to `games.toml` and list each `[[game]]` once (process, config, tunnel
+name, optional CIDR). Adding a future game/app is then just adding one
+more entry there - no code changes, no new Scheduled Task:
+
+```powershell
+.\target\release\route-agent.exe watch-games --games games.toml
+```
+
+This watches every registered game in one loop, in the order listed,
+each round.
 
 `add-game-route`/`watch-game` need the same Administrator elevation as
 `connect` (they reconnect the tunnel). To avoid opening an elevated

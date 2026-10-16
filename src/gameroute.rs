@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use crate::error::{AgentError, Result};
 use crate::gamedetect::detect_remote_ips;
+use crate::games::GameProfile;
 use crate::traits::TunnelManager;
 
 #[derive(Debug, Clone, Default)]
@@ -92,6 +93,76 @@ pub fn watch_game(
         thread::sleep(Duration::from_secs(interval_secs));
     }
     Ok(())
+}
+
+/// Like `watch_game`, but for every game registered in a `games.toml`
+/// (see `games::load`) at once, in a single loop - the point being that
+/// adding support for a future game/app is just adding a `[[game]]`
+/// entry to that file, not writing new code or registering a new
+/// Scheduled Task.
+pub fn watch_games(
+    games: &[GameProfile],
+    interval_secs: u64,
+    rounds: Option<u32>,
+    tunnel: &dyn TunnelManager,
+) -> Result<()> {
+    println!(
+        "watch-games: watching {} game(s) every {interval_secs}s: {}",
+        games.len(),
+        games
+            .iter()
+            .map(|g| g.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let mut round_no: u32 = 0;
+    loop {
+        round_no += 1;
+        for game in games {
+            run_one_game_round(round_no, game, tunnel);
+        }
+        if rounds.map(|limit| round_no >= limit).unwrap_or(false) {
+            break;
+        }
+        thread::sleep(Duration::from_secs(interval_secs));
+    }
+    Ok(())
+}
+
+fn run_one_game_round(round_no: u32, game: &GameProfile, tunnel: &dyn TunnelManager) {
+    match add_game_route(&game.config, &game.process, game.cidr) {
+        Ok(outcome) if outcome.detected.is_empty() => {
+            println!("[round {round_no}] {}: no active match", game.name);
+        }
+        Ok(outcome) if outcome.added.is_empty() => {
+            println!(
+                "[round {round_no}] {}: already covered ({})",
+                game.name,
+                join_ips(&outcome.detected)
+            );
+        }
+        Ok(outcome) => {
+            println!(
+                "[round {round_no}] {}: new route(s) {} - reconnecting",
+                game.name,
+                outcome.added.join(", ")
+            );
+            match reconnect(tunnel, &game.tunnel_name, &game.config) {
+                Ok(name) => println!(
+                    "[round {round_no}] {}: tunnel '{name}' reconnected",
+                    game.name
+                ),
+                Err(e) => eprintln!(
+                    "[round {round_no}] {}: warning: reconnect failed: {e}",
+                    game.name
+                ),
+            }
+        }
+        Err(e) => eprintln!(
+            "[round {round_no}] {}: warning: detection failed: {e}",
+            game.name
+        ),
+    }
 }
 
 fn join_ips(ips: &[IpAddr]) -> String {
