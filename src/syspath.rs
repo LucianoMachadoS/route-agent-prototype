@@ -38,6 +38,22 @@ pub fn windows_powershell() -> PathBuf {
     system_root().join(r"System32\WindowsPowerShell\v1.0\powershell.exe")
 }
 
+/// `Command::new(path)` that won't pop up a console window for the child.
+/// Matters for `route-agent-gui`, which has no console of its own in
+/// release builds - without this every `sc.exe`/`ping.exe` it runs on a
+/// refresh would flash a black window. Harmless for the CLI: every call
+/// site captures output through pipes (`.output()`), never the console.
+pub fn hidden_command(path: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    let mut cmd = std::process::Command::new(path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

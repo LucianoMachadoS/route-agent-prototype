@@ -7,6 +7,7 @@
 //! CLAUDE.md for the detail.
 
 pub mod bench;
+pub mod console;
 pub mod error;
 pub mod gamedetect;
 pub mod gameroute;

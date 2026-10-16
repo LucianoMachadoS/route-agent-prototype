@@ -271,7 +271,7 @@ pub fn parse_sc_query_state(output: &str) -> Option<ServiceState> {
 /// Queries the tunnel's Windows service state via `sc.exe query`.
 pub fn status(name: &str) -> Result<ServiceState> {
     let service = format!("{SERVICE_PREFIX}{name}");
-    let mut cmd = Command::new(crate::syspath::system32("sc.exe"));
+    let mut cmd = crate::syspath::hidden_command(crate::syspath::system32("sc.exe"));
     cmd.arg("query").arg(&service);
 
     let output = cmd.output().map_err(|source| AgentError::Spawn {

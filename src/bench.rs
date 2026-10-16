@@ -125,7 +125,7 @@ fn looks_like_a_real_attempt(stdout: &str) -> bool {
 /// `monitor`'s round instead of triggering failover. Found via a live
 /// smoke test, not a unit test - see CLAUDE.md.)
 pub fn ping(host: &str, count: u32) -> Result<PingStats> {
-    let mut cmd = Command::new(crate::syspath::system32("ping.exe"));
+    let mut cmd = crate::syspath::hidden_command(crate::syspath::system32("ping.exe"));
     cmd.arg("-n").arg(count.to_string()).arg(host);
     let output = cmd.output().map_err(|source| AgentError::Spawn {
         command: format!("ping.exe -n {count} {host}"),

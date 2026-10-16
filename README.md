@@ -377,6 +377,25 @@ server falls outside the ranges you've already allowed on the relay
 useful - no error, just no benefit, until you add a matching NAT rule on
 the relay by hand.
 
+## Desktop window (`route-agent-gui`)
+
+```powershell
+cargo build --release
+.\target\release\route-agent-gui.exe      # no console window in release builds
+```
+
+Shows the tunnel's service state plus RTT/jitter/loss to `10.66.0.1`
+(override with `--tunnel-host`), the games in `games.toml` (found next to
+the exe or up to four folders above it, or pass `--games`), the
+RouteAgent Scheduled Tasks' status, and the tail of
+`%LOCALAPPDATA%\RouteAgent\watch-game.log`. Refreshes every 5 s.
+
+It never runs elevated: the Connect/Disconnect/detection buttons only
+`schtasks /run` (or `/end`) the fixed-name tasks from
+`scripts/scheduled-tasks/` - register those first, or the buttons just
+report that the task doesn't exist. A task shown as "Desabilitado"/
+"Disabled" refuses `/run` until it's re-enabled in Task Scheduler.
+
 ## Current limitations
 
 - No relay discovery, game/process detection, UI, or multipath - all

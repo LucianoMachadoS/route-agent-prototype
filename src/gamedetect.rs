@@ -7,9 +7,11 @@
 //! meaningful to detect from a menu/lobby.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::process::Command;
 
 use crate::error::{AgentError, Result};
+
+/// Exit code the detection script uses for "no such process right now".
+const NOT_RUNNING_EXIT: i32 = 3;
 
 /// Queries Windows for the remote IPv4/IPv6 addresses a running process
 /// currently has active UDP endpoints toward, filtering out addresses
@@ -29,23 +31,34 @@ pub fn detect_remote_ips(process_name: &str) -> Result<Vec<IpAddr>> {
     // was actually running in a real match. Plain `$_.RemoteAddress`
     // property access just evaluates to $null for those instead of
     // erroring, which Rust-side parsing already skips as unparseable.
+    //
+    // "Game isn't running" is the normal state for most of watch-games'
+    // rounds, so it's signalled with a dedicated exit code instead of
+    // letting Get-Process -ErrorAction Stop throw: that used to dump a
+    // multi-line PowerShell exception into watch-game.log every 20s per
+    // game, burying the lines that actually matter.
     let script = format!(
-        "Get-Process -Name '{name}' -ErrorAction Stop | ForEach-Object {{ \
+        "$p = @(Get-Process -Name '{name}' -ErrorAction SilentlyContinue); \
+         if ($p.Count -eq 0) {{ exit {NOT_RUNNING_EXIT} }}; \
+         $p | ForEach-Object {{ \
          Get-NetUDPEndpoint -OwningProcess $_.Id -ErrorAction SilentlyContinue }} | \
          ForEach-Object {{ $_.RemoteAddress }}"
     );
-    let mut cmd = Command::new(crate::syspath::windows_powershell());
+    let mut cmd = crate::syspath::hidden_command(crate::syspath::windows_powershell());
     cmd.args(["-NoProfile", "-Command", &script]);
     let output = cmd.output().map_err(|source| AgentError::Spawn {
         command: "powershell.exe (detect-remote)".to_string(),
         source,
     })?;
 
+    if output.status.code() == Some(NOT_RUNNING_EXIT) {
+        return Err(AgentError::ProcessNotRunning(process_name.to_string()));
+    }
     if !output.status.success() {
         return Err(AgentError::CommandFailed {
             command: format!("Get-NetUDPEndpoint for process '{process_name}'"),
             status: output.status.code().unwrap_or(-1),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            stderr: crate::console::decode(&output.stderr).trim().to_string(),
         });
     }
 

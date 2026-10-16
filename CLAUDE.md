@@ -230,7 +230,7 @@ it with `Write`, even when asked to work fast.
 ```powershell
 $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"   # if cargo isn't found
 cargo fmt
-cargo test            # 37 tests as of this writing (31 lib + 4 + 2 integration), all pure/offline
+cargo test            # 67 tests as of 2026-10-16 (59 lib + 6 + 2 integration), all pure/offline
 cargo build --release
 ```
 
@@ -300,3 +300,46 @@ test it against both a real public IP AND an RFC 5737 TEST-NET address
 (203.0.113.0/24) in the same `monitor` run** - the unit tests use
 synthetic transcripts for this exact case, but the bug only showed up
 end-to-end, not in `cargo test`.
+
+## GUI (`src/bin/route-agent-gui.rs`) - things that bit us
+
+- **eframe 0.37 changed the `App` trait**: the required method is now
+  `fn ui(&mut self, ui: &mut egui::Ui, frame)`, not `update(ctx, frame)`,
+  and `CentralPanel::show` takes a `&mut Ui`, not a `&Context`. Most
+  examples/docs online still show the old shape - check
+  `eframe-0.37.0/src/epi.rs` in `~/.cargo/registry` instead of guessing.
+- **Use `glow`, not eframe's default `wgpu`** - measured live: ~202 MB
+  working set with wgpu vs ~117 MB with glow for the same window.
+  `Cargo.toml` turns off default features; `winit/default` can't be
+  listed from our crate (a dependency's dependency's feature), and isn't
+  needed on Windows anyway.
+- **A windowless (release) GUI flashes a console for every child
+  process** it spawns (`sc.exe`, `ping.exe`, `schtasks.exe`,
+  `powershell.exe`) unless they're created with `CREATE_NO_WINDOW` - that's
+  what `syspath::hidden_command` is for. Use it for any new spawn the GUI
+  can reach; harmless for the CLI since every call site captures via pipes.
+- **Console output is CP850 on this pt-BR machine**, not UTF-8 -
+  `from_utf8_lossy` turned "Não é possível" into "N�o � poss�vel" *in
+  watch-game.log itself*. `console::decode` handles it; use it instead of
+  `from_utf8_lossy` for stderr/stdout of Windows console tools.
+- Refreshes run on a worker thread (`ping.exe` takes seconds; doing it in
+  `ui()` froze the window), results come back over an `mpsc` channel.
+- Task status is shown as schtasks' raw localized text (CSV column 3,
+  positional) - deliberately not parsed, same lesson as `sc.exe`'s "ESTADO".
+- **Seen live 2026-10-16, cause unknown**: all three RouteAgent tasks
+  flipped between Ready and Disabled within minutes, while nothing in
+  the session disabled them (`/end` doesn't disable). Suspects: Avast
+  reacting to the freshly rebuilt, unsigned `route-agent.exe` that the
+  tasks run elevated, or a manual change in Task Scheduler. If the
+  buttons start failing with "não pôde ser executada porque está
+  desabilitada", check `(Get-ScheduledTask -TaskName ...).Settings.Enabled`
+  first.
+
+## `watch-games` no longer logs a stack trace when a game isn't running
+
+`detect_remote_ips` used `Get-Process -ErrorAction Stop`, so every idle
+round (game closed, the normal state) wrote a multi-line PowerShell
+exception per game into watch-game.log. Now the script exits with code 3
+when no process matches, which maps to `AgentError::ProcessNotRunning`
+and a one-line `"<game>: not running"`. Verified live against `cs2.exe`
+(not running) and `steam.exe` (running) in the same session.

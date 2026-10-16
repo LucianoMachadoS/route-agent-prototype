@@ -158,6 +158,9 @@ fn run_one_game_round(round_no: u32, game: &GameProfile, tunnel: &dyn TunnelMana
                 ),
             }
         }
+        Err(AgentError::ProcessNotRunning(_)) => {
+            println!("[round {round_no}] {}: not running", game.name);
+        }
         Err(e) => eprintln!(
             "[round {round_no}] {}: warning: detection failed: {e}",
             game.name

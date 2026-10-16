@@ -3,6 +3,7 @@ name = "route-agent"
 version = "0.1.0"
 edition = "2021"
 description = "Prototype controller for an official WireGuard for Windows tunnel"
+default-run = "route-agent"
 license = "MIT"
 
 [dependencies]
@@ -10,6 +11,10 @@ clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+# glow (OpenGL) instead of the default wgpu: a status window doesn't need D3D12/Vulkan,
+# and the Linux backends/system-font loading do nothing on Windows.
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
+egui = "0.37"
 
 [dev-dependencies]
 tempfile = "3"
