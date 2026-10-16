@@ -17,7 +17,10 @@ leaving it "connected" to a dead endpoint). Last stopped 2026-10-16.
 2. **Check the external IP didn't change** - it's ephemeral, not
    reserved, so a stop/start cycle can reassign it:
    `gcloud compute instances describe brasil-instance --zone southamerica-east1-a --format="value(networkInterfaces[0].accessConfigs[0].natIP)"`.
-   If it's still `34.95.142.255`, nothing else to do. If it changed,
+   If it's still `34.151.232.106`, nothing else to do (it *did* change on
+   the 2026-10-16 restart, from `34.95.142.255` - updated in both
+   `write-saopaulo-conf.ps1` and `saopaulo-gcp.conf` via one elevated
+   `-EncodedCommand` string replace). If it changed,
    `write-saopaulo-conf.ps1` (behind the `RouteAgent-Connect-SaoPaulo`
    Scheduled Task - see below) has that IP hardcoded in its `Endpoint =`
    line and needs updating before reconnecting.
@@ -25,6 +28,37 @@ leaving it "connected" to a dead endpoint). Last stopped 2026-10-16.
    needed - see the Scheduled Task section below) brings the tunnel back
    up with the known-good `AllowedIPs` (legacy CS2 ranges +
    `155.133.0.0/16` SDR).
+
+## Measured result: the relay makes CS2 *worse* from this location (2026-10-16)
+
+One ~10 min CS2 match each way, pinging Valve SDR `gru#1`
+(`155.133.227.35`) once per second during the match:
+
+| | direct | via relay |
+|---|---|---|
+| min / p50 / p95 | 10 / 11 / 13 ms | 15 / 17 / 20 ms |
+| jitter / loss | 1.0 ms / 0% | 1.2 ms / 0% |
+
+The **minimum** rose by 5 ms too, so it's path length, not congestion:
+the ISP already hands off to Valve at IX.br São Paulo (`187.16.218.161`
+in the traceroute, 9 hops, 11 ms) and the relay just adds a detour.
+Don't spend more effort tuning the CS2 path through this relay; it can
+only win if the ISP route degrades (peak hours) or for far-away servers.
+`cs2.exe`'s SDR sockets are unconnected, so `Get-NetUDPEndpoint` never
+shows the 155.133.x peer - measure a known PoP instead of waiting for
+detection. Valorant was removed from `games.toml` (the relay has no Riot
+NAT, so a detected Riot IP would have black-holed Valorant).
+
+## Real cause of tasks flipping to Disabled: Avast Cleanup "Sleep Mode"
+
+Not the antivirus engine - Avast One's Cleanup module (`AvastCleanupSvc`
+/ `TuneupSvc.exe`) catalogued all three RouteAgent tasks *and* the
+`WireGuardManager` and `WireGuardTunnel$saopaulo-gcp` services in
+`C:\ProgramData\Avast Software\Cleanup\TUProgMan.10.tudb` (readable only
+with `FileShare.ReadWrite`; it's locked) and kept disabling the tasks
+within ~10 min of re-enabling. Fixed by the user marking those five
+items "never sleep" in Avast; tasks stayed enabled 20+ min afterwards.
+No Application event log entry is written when it does this.
 
 ## Installed layout (since 2026-10-16) - the tasks no longer run the repo build
 
