@@ -234,7 +234,7 @@ pub struct Finding {
     pub text: String,
 }
 
-const AREAS: [&str; 5] = ["Rede", "Sistema", "GPU", "Jogos", "Inicializacao"];
+const AREAS: [&str; 5] = ["Rede", "Sistema", "GPU", "Jogos", "Inicialização"];
 
 fn nonempty(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
@@ -260,7 +260,7 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
         None => push(
             Level::Warn,
             "Rede",
-            "nao encontrei o adaptador com a rota padrao (sem internet?)".to_string(),
+            "não encontrei o adaptador com a rota padrão (sem internet?)".to_string(),
         ),
         Some(a) => {
             let desc = nonempty(&a.description).unwrap_or("adaptador desconhecido");
@@ -284,7 +284,7 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
                     Level::Warn,
                     "Rede",
                     format!(
-                        "Ethernet ({desc}) negociou so {speed:.0} Mbps - cabo ou porta com defeito/mal encaixado (o normal e 1000)"
+                        "Ethernet ({desc}) negociou só {speed:.0} Mbps - cabo ou porta com defeito/mal encaixado (o normal é 1000)"
                     ),
                 ),
                 Some(MEDIUM_ETHERNET) if speed > 0.0 && speed < 1000.0 => push(
@@ -318,14 +318,14 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
                     Level::Warn,
                     "Rede",
                     format!(
-                        "driver de rede generico da Microsoft (v{ver}, {date_txt}) - instale o driver oficial da {vendor} pelo site do fabricante"
+                        "driver de rede genérico da Microsoft (v{ver}, {date_txt}) - instale o driver oficial da {vendor} pelo site do fabricante"
                     ),
                 );
             } else if years.is_some_and(|y| y > 3.0) {
                 push(
                     Level::Info,
                     "Rede",
-                    format!("driver de rede antigo (v{ver}, {date_txt}) - vale procurar uma versao nova"),
+                    format!("driver de rede antigo (v{ver}, {date_txt}) - vale procurar uma versão nova"),
                 );
             } else {
                 push(
@@ -339,14 +339,14 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
                 push(
                     Level::Info,
                     "Rede",
-                    format!("MTU {mtu} (o padrao Ethernet e 1500) - se nao foi alterado de proposito, vale verificar"),
+                    format!("MTU {mtu} (o padrão Ethernet é 1500) - se não foi alterado de propósito, vale verificar"),
                 );
             }
             if a.rss_enabled == Some(false) {
                 push(
                     Level::Info,
                     "Rede",
-                    "RSS desativado no adaptador (distribui o processamento de rede entre nucleos)"
+                    "RSS desativado no adaptador (distribui o processamento de rede entre núcleos)"
                         .to_string(),
                 );
             }
@@ -364,7 +364,7 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
                 Level::Warn,
                 "Rede",
                 format!(
-                    "perda de {:.0}% ate o roteador ({}) - o problema esta na rede de casa (cabo, Wi-Fi ou roteador), nao na internet",
+                    "perda de {:.0}% até o roteador ({}) - o problema está na rede de casa (cabo, Wi-Fi ou roteador), não na internet",
                     g.loss_pct, g.host
                 ),
             );
@@ -373,7 +373,7 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
                 Level::Warn,
                 "Rede",
                 format!(
-                    "jitter de {jit:.1} ms ate o roteador ({}) - rede local instavel",
+                    "jitter de {jit:.1} ms até o roteador ({}) - rede local instável",
                     g.host
                 ),
             );
@@ -453,14 +453,14 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
         push(
             Level::Info,
             "Sistema",
-            format!("mais memoria agora: {}", heavy.join(", ")),
+            format!("mais memória agora: {}", heavy.join(", ")),
         );
     }
     if s.temps_c.is_empty() {
         push(
             Level::Info,
             "Sistema",
-            "temperatura indisponivel (o Windows so expoe o sensor com admin e suporte da placa-mae) - veja no software do fabricante (ex.: AMD Software)".to_string(),
+            "temperatura indisponível (o Windows só expõe o sensor com admin e suporte da placa-mãe) - veja no software do fabricante (ex.: AMD Software)".to_string(),
         );
     } else {
         let max = s.temps_c.iter().cloned().fold(f64::MIN, f64::max);
@@ -476,7 +476,7 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
             push(
                 Level::Info,
                 "Sistema",
-                format!("ligado ha {:.0} dias sem reiniciar", h / 24.0),
+                format!("ligado há {:.0} dias sem reiniciar", h / 24.0),
             );
         }
     }
@@ -516,7 +516,7 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
                 Level::Info,
                 "GPU",
                 format!(
-                    "driver de video de {} - atualize pelo site da fabricante",
+                    "driver de vídeo de {} - atualize pelo site da fabricante",
                     date.unwrap_or("?")
                 ),
             );
@@ -562,13 +562,13 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
             push(
                 Level::Warn,
                 "Jogos",
-                "gravacao em segundo plano do Xbox Game Bar ligada - custa FPS (GamePrep.ps1 -Action Apply desliga)".to_string(),
+                "gravação em segundo plano do Xbox Game Bar ligada - custa FPS (o GamePrep desliga em um clique)".to_string(),
             );
         } else {
             push(
                 Level::Ok,
                 "Jogos",
-                "gravacao em segundo plano do Game Bar desligada".to_string(),
+                "gravação em segundo plano do Game Bar desligada".to_string(),
             );
         }
         if g.auto_game_mode == Some(0) {
@@ -605,13 +605,13 @@ pub fn findings(s: &Snapshot, today_days: i64) -> Vec<Finding> {
     if n > 8 {
         push(
             Level::Info,
-            "Inicializacao",
-            format!("{n} apps iniciam com o Windows: {list} (GamePrep.ps1 desativa os que voce nao usa)"),
+            "Inicialização",
+            format!("{n} apps iniciam com o Windows: {list} (desative os que você não usa em Gerenciador de Tarefas > Aplicativos de inicialização)"),
         );
     } else {
         push(
             Level::Ok,
-            "Inicializacao",
+            "Inicialização",
             format!("{n} apps iniciam com o Windows: {list}"),
         );
     }
@@ -627,7 +627,7 @@ pub fn print_report(s: &Snapshot, findings: &[Finding]) {
                     .map(|c| format!("{c} (build {})", o.build.as_deref().unwrap_or("?")))
             })
             .unwrap_or_else(|| "Windows".to_string());
-    println!("Diagnostico do PC para jogos - {os}");
+    println!("Diagnóstico do PC para jogos - {os}");
     for area in AREAS {
         let items: Vec<&Finding> = findings.iter().filter(|f| f.area == area).collect();
         if items.is_empty() {
@@ -647,7 +647,7 @@ pub fn print_report(s: &Snapshot, findings: &[Finding]) {
     let warns = findings.iter().filter(|f| f.level == Level::Warn).count();
     let infos = findings.iter().filter(|f| f.level == Level::Info).count();
     println!();
-    println!("Resumo: {warns} aviso(s), {infos} informacao(oes). Nada foi alterado.");
+    println!("Resumo: {warns} aviso(s), {infos} informação(ões). Nada foi alterado.");
 }
 
 #[cfg(test)]
@@ -715,7 +715,7 @@ mod tests {
         assert!(has(&f, Level::Warn, "RAM: 0.9 GB livres"));
         assert!(has(&f, Level::Warn, "Game Bar ligada"));
         assert!(has(&f, Level::Info, "Equilibrado"));
-        assert!(has(&f, Level::Warn, "perda de 10% ate o roteador"));
+        assert!(has(&f, Level::Warn, "perda de 10% até o roteador"));
         // Vendor driver, recent: not flagged.
         assert!(has(&f, Level::Ok, "driver de rede"));
     }
@@ -730,7 +730,7 @@ mod tests {
         )
         .unwrap();
         let f = findings(&s, TODAY);
-        assert!(has(&f, Level::Warn, "negociou so 10 Mbps"));
+        assert!(has(&f, Level::Warn, "negociou só 10 Mbps"));
         assert!(has(&f, Level::Warn, "baixe a qualidade das texturas"));
         // A single GPU serialized as a bare object still counts.
         assert!(has(&f, Level::Ok, "GTX 1050"));
@@ -740,7 +740,7 @@ mod tests {
     fn empty_or_noisy_output_never_panics() {
         let s = parse_snapshot("WARNING: something\n{}\n").unwrap();
         let f = findings(&s, TODAY);
-        assert!(has(&f, Level::Warn, "rota padrao"));
+        assert!(has(&f, Level::Warn, "rota padrão"));
         assert!(parse_snapshot("no json here").is_err());
         let nulls = parse_snapshot(
             r#"{"gpus":null,"top_ram":null,"temps_c":null,"startup_enabled":"OnlyOne"}"#,

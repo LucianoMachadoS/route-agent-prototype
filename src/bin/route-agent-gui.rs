@@ -144,7 +144,7 @@ impl eframe::App for GuiApp {
 
         let due = self
             .last_refresh
-            .map_or(true, |t| t.elapsed() >= REFRESH_EVERY);
+            .is_none_or(|t| t.elapsed() >= REFRESH_EVERY);
         if due {
             self.start_refresh(ctx);
         }

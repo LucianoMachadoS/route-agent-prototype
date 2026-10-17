@@ -392,6 +392,14 @@ server falls outside the ranges you've already allowed on the relay
 useful - no error, just no benefit, until you add a matching NAT rule on
 the relay by hand.
 
+## GamePrep - standalone Windows game optimizer
+
+Separate program in [`gameprep/`](gameprep/README.md), with its own
+`.exe` and `.msi` (`gameprep\installer\build-msi.ps1` -> `dist\`): when a
+configured game starts it closes the background apps you picked (and can
+reopen them afterwards), toggles Game Bar background capture, and shows
+the `diagnose` report. No tunnel/relay involved, never runs elevated.
+
 ## Desktop window (`route-agent-gui`)
 
 ```powershell

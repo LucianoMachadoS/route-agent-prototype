@@ -19,3 +19,13 @@ egui = "0.37"
 
 [dev-dependencies]
 tempfile = "3"
+
+# `gameprep/` is the standalone Windows game optimizer (its own .exe and
+# .msi). It reuses this crate's `windiag`/`agentlog` as a library but has
+# nothing to do with tunnels/relays.
+[workspace]
+members = ["gameprep"]
+
+# Shipped binaries (gameprep.exe / the MSI) don't need debug symbols.
+[profile.release]
+strip = true

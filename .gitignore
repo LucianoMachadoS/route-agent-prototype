@@ -21,3 +21,6 @@ games.toml
 # Scratch copy of the old zip, extracted here just to recover the lost
 # README.md - already merged back into README.md, safe to delete.
 /antigo
+
+# Built installers/binaries (gameprep/installer/build-msi.ps1)
+/dist/

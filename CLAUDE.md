@@ -426,3 +426,44 @@ and a one-line `"<game>: not running"`. Verified live against `cs2.exe`
   readable without admin here (`MSAcpi_ThermalZoneTemperature` empty).
 - First `diagnose` run took 29 s with CS2 open (CPU 57%); steady state
   is ~5.5 s collection + ~1 s per gateway ping.
+
+## GamePrep (`gameprep/`, 2026-10-17) - standalone game optimizer + MSI
+
+Separate workspace member with its own .exe/.msi; reuses `windiag` and
+`agentlog` from the root crate. Things that bit us:
+
+- **PowerShell `& app.exe` does not wait for a GUI-subsystem exe** (release
+  builds use `windows_subsystem = "windows"`). `build-msi.ps1` checked for
+  the `--write-icon` output before it existed. Use `Start-Process -Wait`.
+- **`Process.MainWindowHandle` picked winit's hidden 16x16 "Winit Thread
+  Event Target" window**, not the real one, so screenshots came out black.
+  Enumerate windows by PID, or find by title "GamePrep". Also, from
+  PowerShell P/Invoke, passing `$null` to a `string` param sends `""`,
+  so `FindWindow($null, "GamePrep")` fails; declare the class param as
+  `IntPtr` and pass `[IntPtr]::Zero`.
+- **Avast blocks `Add-Type` C# that calls `OpenProcessToken`/
+  `GetTokenInformation`** ("o arquivo contém um vírus"). To check that a
+  process is *not* elevated without that: `(Get-Process x).MainModule` is
+  readable from a normal shell only if the target isn't elevated
+  (process objects have NO_READ_UP).
+- **The MSI's launch-after-install CA logs as `MSI (s)` (server)** even so,
+  the launched app is NOT elevated (verified via the MainModule test) -
+  `Impersonate="yes"` + immediate after InstallFinalize. Don't "fix" this
+  by elevating anything.
+- **Uninstall with the app open**: the first build left GamePrep running
+  from the deleted exe after a 30 s Restart Manager timeout - the window
+  toolkit doesn't surface WM_QUERYENDSESSION/WM_ENDSESSION, and X only
+  minimizes. `endsession.rs` adds a hidden top-level window that answers
+  them and exits (verified by sending it WM_ENDSESSION directly). In the
+  real uninstall afterwards RM reported "Successfully shut down" within
+  1 s of the user picking "close automatically", **but the handler's log
+  line wasn't written**, so RM may have force-terminated instead - outcome
+  correct, mechanism unconfirmed. With `/qb` the uninstall *waits for that
+  files-in-use dialog*, so unattended tests need someone to click it.
+- `TerminateProcess(h, 0)` makes a forced kill look like a clean exit;
+  GamePrep uses exit code 1 (`procs::FORCED_EXIT_CODE`).
+- WiX v7 needs `-acceptEula wix7` (OSMF; fee only for orgs > USD 10k/yr
+  revenue) - the user explicitly chose v7 over v5 for this. The MSI owns
+  the HKCU `Run` value (removed on uninstall); the app's toggle only flips
+  `StartupApproved`, so they never fight over one value.
+- XML comments can't contain `--`, so the .wxs never spells CLI flags.

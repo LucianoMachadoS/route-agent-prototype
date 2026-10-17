@@ -86,7 +86,7 @@ pub fn parse_ping_output(output: &str) -> Vec<f64> {
         }
         if let Some(ms_pos) = lower.find("ms") {
             let prefix = &line[..ms_pos];
-            if let Some(sep) = prefix.rfind(|c: char| c == '=' || c == '<') {
+            if let Some(sep) = prefix.rfind(['=', '<']) {
                 let num_str: String = prefix[sep + 1..]
                     .chars()
                     .filter(|c| c.is_ascii_digit() || *c == '.')

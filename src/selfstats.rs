@@ -68,7 +68,7 @@ pub const REPORT_EVERY_SECS: u64 = 300;
 /// `REPORT_EVERY_SECS`, given the loop's round interval.
 pub fn report_periodically(sampler: &mut SelfSampler, round_no: u32, interval_secs: u64) {
     let every = (REPORT_EVERY_SECS / interval_secs.max(1)).max(1) as u32;
-    if round_no == 1 || round_no % every == 0 {
+    if round_no == 1 || round_no.is_multiple_of(every) {
         if let Some(s) = sampler.sample() {
             crate::log_info!("[round {round_no}] {}", describe(&s));
         }
